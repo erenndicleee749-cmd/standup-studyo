@@ -47,14 +47,35 @@
     </div>
 
     <div class="form-group">
-      <label>Sahne Teması</label>
+      <label>🏛️ Sahne & Çevre Ortamı (Mekan)</label>
       <div class="theme-selector">
         {% for key, t in themes.items() %}
-        <button class="theme-btn {% if loop.first %}active{% endif %}" data-theme="{{ key }}">
+        <button type="button" class="theme-btn {% if loop.first %}active{% endif %}" data-theme="{{ key }}" onclick="selectVenueTheme('{{ key }}')">
           {{ t.name }}
         </button>
         {% endfor %}
       </div>
+    </div>
+
+    <!-- Özel Sahne / Bar Ortamı Tasarımı -->
+    <div class="venue-custom-box" style="background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:16px;">
+      <div style="font-size:0.85rem; font-weight:700; color:var(--gold); margin-bottom:6px;">✨ Özel Sahne / Bar Ortamı Tasarla</div>
+      <p style="font-size:0.75rem; color:var(--text-dim); margin-bottom:8px;">
+        İstediğiniz bar veya kulüp ortamını yazarak AI ile çizebilir ya da mekan fotoğrafınızı yükleyebilirsiniz.
+      </p>
+      <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <input type="text" id="custom-venue-prompt" placeholder="Örn: Loş ışıklı Amerikan barı, ahşap tezgah ve neon ışıklar..." style="font-size:0.8rem; padding:6px 10px; flex:1;">
+        <button type="button" class="btn-primary" id="btn-venue-ai" style="padding:6px 12px; font-size:0.8rem; white-space:nowrap;" onclick="generateCustomVenue()">🎨 AI Çiz</button>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn-secondary" style="font-size:0.75rem; padding:5px 10px;" onclick="document.getElementById('venue-file-input').click()">
+          📷 Kendi Bar/Mekan Resmini Yükle
+        </button>
+        <span id="venue-status-badge" style="font-size:0.75rem; color:var(--gold); font-weight:600;">Seçili: 🍺 Bar</span>
+      </div>
+      <input type="file" id="venue-file-input" accept="image/*" style="display:none;" onchange="onVenueFileSelected(event)">
+      <img id="venue-preview-img" style="display:none; width:100%; height:110px; object-fit:cover; border-radius:8px; margin-top:8px; border:1px solid var(--gold);" alt="Özel Mekan">
     </div>
 
     <button class="btn-primary" id="btn-gen-script" onclick="generateScript()">
@@ -124,7 +145,88 @@
 <script>
 let scriptLines = [];
 let selectedDuration = 5;
-let selectedTheme = 'club';
+let selectedTheme = 'bar';
+let customVenueUrl = null;
+
+function selectVenueTheme(key) {
+  selectedTheme = key;
+  customVenueUrl = null;
+  document.querySelectorAll('.theme-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.theme === key);
+  });
+  document.getElementById('venue-preview-img').style.display = 'none';
+  const badgeMap = {
+    'bar': 'Seçili: 🍺 Bar & Pub Ortamı',
+    'club': 'Seçili: 🎙️ Tuğla Duvarlı Kulüp',
+    'theatre': 'Seçili: 🎭 Kırmızı Perdeli Tiyatro',
+    'street': 'Seçili: 🌆 Açık Hava / Sokak',
+    'studio': 'Seçili: 🎬 Talk-Show Stüdyosu'
+  };
+  document.getElementById('venue-status-badge').textContent = badgeMap[key] || 'Seçili: ' + key;
+  showToast(badgeMap[key] || 'Mekan seçildi', 'info');
+}
+
+function generateCustomVenue() {
+  const prompt = document.getElementById('custom-venue-prompt').value.trim() || 'Loş ışıklı ahşap bar, raflarında içkiler, neon ışıklar';
+  const btn = document.getElementById('btn-venue-ai');
+  btn.disabled = true;
+  btn.textContent = 'Çiziliyor...';
+  showToast('AI özel bar/mekan sahnenizi çiziyor...', 'info');
+
+  fetch('/api/generate-venue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      showToast(data.error, 'error');
+      return;
+    }
+    customVenueUrl = data.img_url;
+    const prev = document.getElementById('venue-preview-img');
+    prev.src = data.img_url;
+    prev.style.display = 'block';
+    document.getElementById('venue-status-badge').textContent = '✅ Özel AI Bar Sahnesi';
+    document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+    showToast('Özel bar sahneniz hazır! 🍺✨', 'success');
+  })
+  .catch(() => showToast('Mekan çizim hatası!', 'error'))
+  .finally(() => {
+    btn.disabled = false;
+    btn.textContent = '🎨 AI Çiz';
+  });
+}
+
+function onVenueFileSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('image', file);
+  showToast('Mekan fotoğrafınız yükleniyor...', 'info');
+
+  fetch('/api/upload-venue', {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      showToast(data.error, 'error');
+      return;
+    }
+    customVenueUrl = data.img_url;
+    const prev = document.getElementById('venue-preview-img');
+    prev.src = data.img_url;
+    prev.style.display = 'block';
+    document.getElementById('venue-status-badge').textContent = '✅ Yüklenen Özel Mekan';
+    document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+    showToast('Mekan fotoğrafınız sahneye aktarıldı! 📸', 'success');
+  })
+  .catch(() => showToast('Mekan yükleme hatası!', 'error'));
+}
 
 // Süre seçimi
 document.querySelectorAll('.dur-btn').forEach(btn => {
@@ -132,15 +234,6 @@ document.querySelectorAll('.dur-btn').forEach(btn => {
     document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     selectedDuration = parseInt(btn.dataset.min);
-  });
-});
-
-// Tema seçimi
-document.querySelectorAll('.theme-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    selectedTheme = btn.dataset.theme;
   });
 });
 
@@ -253,6 +346,11 @@ function goToVoiceover() {
   const proj = JSON.parse(localStorage.getItem('su_project') || '{}');
   proj.lines  = scriptLines;
   proj.theme  = selectedTheme;
+  if (customVenueUrl) {
+    proj.custom_bg = customVenueUrl;
+  } else {
+    delete proj.custom_bg;
+  }
   localStorage.setItem('su_project', JSON.stringify(proj));
   fetch('/api/save-project', {
     method: 'POST',
@@ -265,7 +363,14 @@ function goToVoiceover() {
 const saved = JSON.parse(localStorage.getItem('su_project') || '{}');
 if (saved.lines && saved.lines.length) {
   scriptLines = saved.lines;
-  if (saved.theme) selectedTheme = saved.theme;
+  if (saved.theme) selectVenueTheme(saved.theme);
+  if (saved.custom_bg) {
+    customVenueUrl = saved.custom_bg;
+    const prev = document.getElementById('venue-preview-img');
+    prev.src = customVenueUrl;
+    prev.style.display = 'block';
+    document.getElementById('venue-status-badge').textContent = '✅ Özel Mekan Aktif';
+  }
   renderScript();
 }
 </script>
