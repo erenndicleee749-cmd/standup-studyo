@@ -52,7 +52,7 @@ for d in [CHAR_DIR, OUTPUT_DIR, AUDIO_DIR, VENUE_DIR,
     os.makedirs(d, exist_ok=True)
 
 VIDEO_W, VIDEO_H = 1280, 720
-FPS = 24
+FPS = 15  # Render ücretsiz planın zayıf CPU'su için optimize (çizgi animasyon için yeterince akıcı)
 
 # ── Renk paleti ve mekan temaları ───────────────────────────────────────────
 STAGE_THEMES = {
@@ -657,39 +657,58 @@ def create_custom_photo_character(image_file, role: str = 'comedian', mode: str 
     return cid
 
 
+_SPRITE_CACHE: dict = {}
+
+
+def _build_sprite(char_path: str, scale: float, mouth_open: bool, tilt_q: int) -> Image.Image:
+    """Karakter sprite'ını (boyutlandırılmış, ağız açık/kapalı, eğik) üretir ve önbelleğe alır."""
+    key = (char_path, scale, mouth_open, tilt_q)
+    cached = _SPRITE_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    if tilt_q != 0:
+        base = _build_sprite(char_path, scale, mouth_open, 0)
+        sprite = base.rotate(tilt_q, resample=Image.BICUBIC, expand=True)
+        _SPRITE_CACHE[key] = sprite
+        return sprite
+
+    char = Image.open(char_path).convert('RGBA')
+    new_w = max(1, int(char.width * scale))
+    new_h = max(1, int(char.height * scale))
+    char = char.resize((new_w, new_h), Image.LANCZOS)
+
+    if mouth_open:
+        # Gerçek ağız açılma animasyonu (Çene aşağı iner, ağız içi ve dişler görünür)
+        split_y = int(new_h * 0.38)
+        top = char.crop((0, 0, new_w, split_y))
+        bot = char.crop((0, split_y, new_w, new_h))
+        gap = 12
+        combined = Image.new('RGBA', (new_w, new_h + gap), (0, 0, 0, 0))
+
+        # Ağız boşluğu ve diş çizimi
+        c_draw = ImageDraw.Draw(combined)
+        mw = max(14, int(new_w * 0.18))
+        cx = new_w // 2
+        # Ağız içi (koyu kırmızı / bordo)
+        c_draw.ellipse([cx - mw, split_y - 2, cx + mw, split_y + gap + 3], fill=(55, 12, 18))
+        # Üst dişler (beyaz çizgi)
+        c_draw.rectangle([cx - int(mw * 0.7), split_y, cx + int(mw * 0.7), split_y + 3], fill=(250, 250, 250))
+
+        combined.paste(top, (0, 0), top)
+        combined.paste(bot, (0, split_y + gap), bot)
+        char = combined
+
+    _SPRITE_CACHE[key] = char
+    return char
+
+
 def _paste_character(frame: Image.Image, char_path: str,
                      x: int, y: int, scale: float = 1.0, mouth_open: bool = False, bounce: int = 0, tilt: float = 0.0):
     """Karakter PNG'yi frame'e yapıştırır, konuşurken ağzını açar ve sahnede canlı animasyon uygular."""
     try:
-        char = Image.open(char_path).convert('RGBA')
-        new_w = int(char.width * scale)
-        new_h = int(char.height * scale)
-        char = char.resize((new_w, new_h), Image.LANCZOS)
-
-        if mouth_open:
-            # Gerçek ağız açılma animasyonu (Çene aşağı iner, ağız içi ve dişler görünür)
-            split_y = int(new_h * 0.38)
-            top = char.crop((0, 0, new_w, split_y))
-            bot = char.crop((0, split_y, new_w, new_h))
-            gap = 12
-            combined = Image.new('RGBA', (new_w, new_h + gap), (0, 0, 0, 0))
-
-            # Ağız boşluğu ve diş çizimi
-            c_draw = ImageDraw.Draw(combined)
-            mw = max(14, int(new_w * 0.18))
-            cx = new_w // 2
-            # Ağız içi (koyu kırmızı / bordo)
-            c_draw.ellipse([cx - mw, split_y - 2, cx + mw, split_y + gap + 3], fill=(55, 12, 18))
-            # Üst dişler (beyaz çizgi)
-            c_draw.rectangle([cx - int(mw * 0.7), split_y, cx + int(mw * 0.7), split_y + 3], fill=(250, 250, 250))
-
-            combined.paste(top, (0, 0), top)
-            combined.paste(bot, (0, split_y + gap), bot)
-            char = combined
-
-        if abs(tilt) > 0.4:
-            char = char.rotate(tilt, resample=Image.BICUBIC, expand=True)
-
+        tilt_q = int(round(tilt)) if abs(tilt) > 0.4 else 0
+        char = _build_sprite(char_path, scale, mouth_open, tilt_q)
         paste_x = x - char.width // 2
         paste_y = y - char.height - bounce
         frame.paste(char, (paste_x, paste_y), char)
@@ -802,11 +821,6 @@ def _generate_video_worker(job_id: str, project: dict):
         raw_video_path = os.path.join(OUTPUT_DIR, f'raw_{video_id}.mp4')
         final_path     = os.path.join(OUTPUT_DIR, f'final_{video_id}.mp4')
 
-        writer = imageio.get_writer(raw_video_path, fps=FPS,
-                                    codec='libx264', quality=7,
-                                    macro_block_size=None,
-                                    ffmpeg_params=['-pix_fmt', 'yuv420p'])
-
         total = len(lines)
         speaker_names = {
             'comedian': '🎤 Komedyen', 'comedian2': '🎤 Komedyen 2',
@@ -814,55 +828,84 @@ def _generate_video_worker(job_id: str, project: dict):
             'audience_clap': '👏 Alkış'
         }
 
-        all_audio_segments = []
+        # ── AŞAMA 1: Tüm seslendirmeleri üret (%0 → %30) ─────────────────
+        JOB_STORE[job_id]['stage'] = 'Seslendirmeler hazırlanıyor'
+        line_audio = []   # [(audio_path|None, n_frames)]
+        for idx, line in enumerate(lines):
+            audio_path, duration = resolve_line_audio(line, lang, voice_settings)
+            n_frames = max(int(round(duration * FPS)), FPS)
+            line_audio.append((audio_path, n_frames))
+            JOB_STORE[job_id]['progress'] = int((idx + 1) / max(1, total) * 30)
 
+        total_frames = max(1, sum(n for _, n in line_audio))
+
+        # ── AŞAMA 2: Kareleri çiz (%30 → %85) ─────────────────────────────
+        JOB_STORE[job_id]['stage'] = 'Animasyon kareleri çiziliyor'
+        # Arka plan yalnızca BİR kez çizilir, her karede kopyalanır
+        stage_bg = Image.new('RGB', (VIDEO_W, VIDEO_H), (0, 0, 0))
+        _draw_stage_bg(stage_bg, theme_key, custom_bg_path=custom_bg_path)
+
+        writer = imageio.get_writer(raw_video_path, fps=FPS,
+                                    codec='libx264', quality=6,
+                                    macro_block_size=None,
+                                    pixelformat='yuv420p',
+                                    ffmpeg_params=['-preset', 'ultrafast'])
+
+        frames_done = 0
         for idx, line in enumerate(lines):
             speaker = line.get('speaker', 'comedian')
             text    = line.get('text', '')
+            n_frames = line_audio[idx][1]
 
-            audio_path, duration = resolve_line_audio(line, lang, voice_settings)
-            all_audio_segments.append(audio_path)
-
-            n_frames = max(int(duration * FPS), FPS)
+            # Bu satır için arka plan + altyazı tabanı (bir kez)
+            line_base = stage_bg.copy()
+            sub_txt = text if speaker not in ('audience_laugh', 'audience_clap') else ('😂😂😂' if speaker == 'audience_laugh' else '👏👏👏')
+            _draw_subtitle(ImageDraw.Draw(line_base), sub_txt, speaker_names.get(speaker, speaker))
 
             for f_idx in range(n_frames):
-                frame = Image.new('RGB', (VIDEO_W, VIDEO_H), (0, 0, 0))
-                _draw_stage_bg(frame, theme_key, custom_bg_path=custom_bg_path)
+                frame = line_base.copy()
+                t_sec = f_idx / FPS
 
-                # Tüm karakterleri çiz
                 for role, pos in CHAR_POS.items():
                     cp = char_paths.get(role)
                     if not cp:
                         continue
                     is_speaking = (role == speaker)
                     scale = 0.55 if is_speaking else 0.40
-                    mouth_open = is_speaking and ((f_idx // 3) % 2 == 1)
-                    bounce = int(abs(math.sin(f_idx * 0.55)) * 6) if is_speaking else int(math.sin(f_idx * 0.12) * 2)
-                    tilt = math.sin(f_idx * 0.35) * 3.0 if is_speaking else 0.0
+                    # Saniyede ~8 ağız hareketi (FPS'ten bağımsız)
+                    mouth_open = is_speaking and (int(t_sec * 8) % 2 == 1)
+                    bounce = int(abs(math.sin(t_sec * 13)) * 6) if is_speaking else int(math.sin(t_sec * 3) * 2)
+                    tilt = math.sin(t_sec * 8.4) * 3.0 if is_speaking else 0.0
                     _paste_character(frame, cp, pos[0], pos[1], scale, mouth_open=mouth_open, bounce=bounce, tilt=tilt)
 
-                # Altyazı
-                draw2 = ImageDraw.Draw(frame)
-                sub_txt = text if speaker not in ('audience_laugh', 'audience_clap') else ('😂😂😂' if speaker == 'audience_laugh' else '👏👏👏')
-                _draw_subtitle(draw2, sub_txt, speaker_names.get(speaker, speaker))
-
-                writer.append_data(np.array(frame))
-
-            JOB_STORE[job_id]['progress'] = int((idx + 1) / max(1, total) * 85)
+                writer.append_data(np.asarray(frame))
+                frames_done += 1
+                if frames_done % 10 == 0:
+                    JOB_STORE[job_id]['progress'] = 30 + int(frames_done / total_frames * 55)
 
         writer.close()
+        _SPRITE_CACHE.clear()
 
-        # Ses birleştirme ve ses-video mux işlemi
-        valid_segs = [s for s in all_audio_segments if s and os.path.exists(s)]
-        if valid_segs:
-            JOB_STORE[job_id]['progress'] = 90
+        # ── AŞAMA 3: Ses-video birleştirme (%85 → %100) ──────────────────
+        JOB_STORE[job_id]['stage'] = 'Ses ve video birleştiriliyor'
+        JOB_STORE[job_id]['progress'] = 88
+        has_any_audio = any(a and os.path.exists(a) for a, _ in line_audio)
+        if has_any_audio:
             norm_segments = []
-            for s_idx, s in enumerate(valid_segs):
+            for s_idx, (a_path, n_frames) in enumerate(line_audio):
+                seg_dur = f'{n_frames / FPS:.3f}'
                 seg_wav = os.path.join(OUTPUT_DIR, f'norm_{video_id}_{s_idx}.wav')
-                subprocess.run([
-                    ffmpeg_exe, '-y', '-i', s,
-                    '-ar', '44100', '-ac', '2', seg_wav
-                ], capture_output=True, timeout=30)
+                if a_path and os.path.exists(a_path):
+                    # Satır sesini tam olarak kare süresine sabitle (kayma olmaz)
+                    cmd = [ffmpeg_exe, '-y', '-i', a_path,
+                           '-af', 'apad', '-t', seg_dur,
+                           '-ar', '44100', '-ac', '2', seg_wav]
+                else:
+                    # Ses yoksa aynı uzunlukta sessizlik
+                    cmd = [ffmpeg_exe, '-y', '-f', 'lavfi',
+                           '-i', 'anullsrc=r=44100:cl=stereo',
+                           '-t', seg_dur, seg_wav]
+                subprocess.run(cmd, capture_output=True, timeout=60)
                 if os.path.exists(seg_wav):
                     norm_segments.append(seg_wav)
 
@@ -877,16 +920,17 @@ def _generate_video_worker(job_id: str, project: dict):
                 subprocess.run([
                     ffmpeg_exe, '-y', '-f', 'concat', '-safe', '0',
                     '-i', concat_list, '-c:a', 'pcm_s16le', merged_audio
-                ], capture_output=True, timeout=60)
+                ], capture_output=True, timeout=120)
 
                 if os.path.exists(merged_audio):
                     subprocess.run([
                         ffmpeg_exe, '-y',
                         '-i', raw_video_path,
                         '-i', merged_audio,
-                        '-c:v', 'copy', '-c:a', 'aac',
+                        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+                        '-movflags', '+faststart',
                         '-shortest', final_path
-                    ], capture_output=True, timeout=60)
+                    ], capture_output=True, timeout=180)
 
                 # Geçici wav parçalarını temizle
                 for ns in norm_segments:

@@ -155,7 +155,7 @@ let pollTimer = null;
 let currentJobId = null;
 
 const themeNames = {
-  club: '🍺 Gece Kulübü', theatre: '🎭 Tiyatro',
+  bar: '🍺 Bar & Pub', club: '🎙️ Kulüp', theatre: '🎭 Tiyatro',
   street: '🌆 Sokak', studio: '🎬 Stüdyo'
 };
 const langNames = { tr: '🇹🇷 Türkçe', en: '🇬🇧 İngilizce', de: '🇩🇪 Almanca', fr: '🇫🇷 Fransızca' };
@@ -188,27 +188,42 @@ function startRender() {
     return;
   }
   document.getElementById('render-idle').style.display = 'none';
+  document.getElementById('render-error').style.display = 'none';
   document.getElementById('render-progress').style.display = 'block';
+  renderStartedAt = Date.now();
+  netFailCount = 0;
+  updateProgress(0, 'Video işi başlatılıyor');
 
   fetch('/api/start-video', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(proj)
   })
-  .then(r => r.json())
+  .then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  })
   .then(data => {
     currentJobId = data.job_id;
     pollStatus();
   })
-  .catch(() => showError('Video başlatılamadı!'));
+  .catch(err => showError('Video başlatılamadı (' + err.message + '). Sunucu uyanıyor olabilir, 30 sn sonra tekrar deneyin.'));
 }
+
+let renderStartedAt = 0;
+let netFailCount = 0;
 
 function pollStatus() {
   if (!currentJobId) return;
   fetch(`/api/video-status/${currentJobId}`)
     .then(r => r.json())
     .then(data => {
-      updateProgress(data.progress || 0, data.status);
+      netFailCount = 0;
+      if (data.status === 'unknown') {
+        showError('Sunucu video üretimi sırasında yeniden başladı (Render ücretsiz plan bellek/CPU sınırı). Lütfen "Tekrar Dene" ile yeniden başlatın; daha kısa bir senaryo daha hızlı üretilir.');
+        return;
+      }
+      updateProgress(data.progress || 0, data.stage);
 
       if (data.status === 'done') {
         showDone(data.result);
@@ -218,23 +233,35 @@ function pollStatus() {
         pollTimer = setTimeout(pollStatus, 2000);
       }
     })
-    .catch(() => { pollTimer = setTimeout(pollStatus, 3000); });
+    .catch(() => {
+      netFailCount++;
+      if (netFailCount > 40) {
+        showError('Sunucuya ulaşılamıyor. İnternet bağlantınızı kontrol edip tekrar deneyin.');
+        return;
+      }
+      pollTimer = setTimeout(pollStatus, 3000);
+    });
 }
 
 const statusMsgs = [
-  [0,  15, '⏳ Karakterler hazırlanıyor...'],
-  [15, 40, '🎙️ Seslendirme oluşturuluyor...'],
-  [40, 75, '🖼️ Animasyon frame\'leri çiziliyor...'],
-  [75, 90, '🎬 Video birleştiriliyor...'],
-  [90, 99, '🔊 Ses ile video eşleştiriliyor...'],
+  [0,  30, '🎙️ Seslendirmeler oluşturuluyor...'],
+  [30, 85, '🖼️ Animasyon kareleri çiziliyor...'],
+  [85, 101, '🔊 Ses ile video birleştiriliyor...'],
 ];
 
-function updateProgress(pct, status) {
+function updateProgress(pct, stage) {
   document.getElementById('progress-fill').style.width = pct + '%';
   document.getElementById('progress-pct').textContent  = pct + '%';
 
   const msg = statusMsgs.find(([lo, hi]) => pct >= lo && pct < hi);
   if (msg) document.getElementById('render-status-text').textContent = msg[2];
+
+  const secs = Math.round((Date.now() - renderStartedAt) / 1000);
+  const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+  const ss = String(secs % 60).padStart(2, '0');
+  document.getElementById('render-log').innerHTML =
+    `<p>⏳ ${stage || 'Hazırlanıyor'}... (geçen süre: ${mm}:${ss})</p>` +
+    `<p style="opacity:.7;font-size:.8rem">Ücretsiz sunucuda 1 dakikalık video birkaç dakika sürebilir, sayfayı kapatmayın.</p>`;
 }
 
 function showDone(fname) {
