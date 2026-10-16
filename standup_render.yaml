@@ -2,10 +2,8 @@ services:
   - type: web
     name: standup-studyo
     runtime: python
-    # ffmpeg + bagimliliklar
-    buildCommand: |
-      apt-get install -y ffmpeg &&
-      pip install -r standup_requirements.txt
+    # Bagimliliklar (imageio-ffmpeg otomatik ffmpeg saglar)
+    buildCommand: pip install -r standup_requirements.txt
     # Gunicorn ile baslatma (timeout=300 video uretimi icin)
     startCommand: gunicorn standup_wsgi:app --workers 1 --timeout 300 --bind 0.0.0.0:$PORT
     envVars:
