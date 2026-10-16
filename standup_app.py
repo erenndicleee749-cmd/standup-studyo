@@ -327,9 +327,84 @@ def _draw_audience(draw: ImageDraw.ImageDraw):
                      fill=silhouette)
 
 
+def create_custom_photo_character(image_file, role: str = 'comedian', mode: str = 'bobblehead', body_color: str = '#2c3e50') -> str:
+    """Kullanıcının yüklediği kendi fotoğrafından animasyon karakteri üretir."""
+    cid = str(uuid.uuid4())[:8]
+    out_path = os.path.join(CHAR_DIR, f'{cid}.png')
+
+    img = Image.open(image_file).convert('RGBA')
+    W, H = 400, 600
+    canvas = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+
+    if mode == 'bobblehead':
+        # 1. Çizgi Stand-Up Kıyafeti & Gövde
+        draw = ImageDraw.Draw(canvas)
+        try:
+            r, g, b = int(body_color[1:3], 16), int(body_color[3:5], 16), int(body_color[5:7], 16)
+        except Exception:
+            r, g, b = 44, 62, 80
+
+        # Ceket & Omuzlar
+        draw.polygon([(100, 230), (300, 230), (330, 430), (70, 430)], fill=(r, g, b))
+        # Beyaz gömlek yakası
+        draw.polygon([(165, 230), (235, 230), (200, 310)], fill=(245, 245, 250))
+        # Kırmızı kravat
+        draw.polygon([(194, 240), (206, 240), (210, 360), (200, 375), (190, 360)], fill=(210, 45, 45))
+        # Pantolon
+        pant_color = (max(0, r - 25), max(0, g - 25), max(0, b - 25))
+        draw.rectangle([(120, 430), (185, 565)], fill=pant_color)
+        draw.rectangle([(215, 430), (280, 565)], fill=pant_color)
+        # Ayakkabılar
+        draw.ellipse([(105, 545), (190, 580)], fill=(15, 15, 20))
+        draw.ellipse([(210, 545), (295, 580)], fill=(15, 15, 20))
+
+        # 2. Kullanıcının fotoğrafından kafa/yüz kesimi (210x230)
+        head_w, head_h = 210, 230
+        min_dim = min(img.width, img.height)
+        left = (img.width - min_dim) // 2
+        top = max(0, (img.height - min_dim) // 4)
+        cropped = img.crop((left, top, left + min_dim, top + min_dim)).resize((head_w, head_h), Image.LANCZOS)
+
+        # Oval maske
+        mask = Image.new('L', (head_w, head_h), 0)
+        m_draw = ImageDraw.Draw(mask)
+        m_draw.ellipse([4, 4, head_w - 4, head_h - 4], fill=255)
+
+        # Çizgi film kenar çizgisi (altın sarısı aksan)
+        outline_layer = Image.new('RGBA', (head_w, head_h), (0, 0, 0, 0))
+        o_draw = ImageDraw.Draw(outline_layer)
+        o_draw.ellipse([2, 2, head_w - 2, head_h - 2], outline=(245, 200, 66, 230), width=4)
+
+        head_x = (W - head_w) // 2
+        head_y = 30
+        canvas.paste(cropped, (head_x, head_y), mask)
+        canvas.paste(outline_layer, (head_x, head_y), outline_layer)
+
+        # 3. Stand-up Mikrofonu
+        draw.line([(240, 260), (240, 480)], fill=(180, 180, 190), width=6)
+        draw.ellipse([(227, 230), (253, 265)], fill=(80, 80, 90))
+        draw.ellipse([(230, 235), (250, 260)], fill=(150, 150, 160))
+
+    else:
+        # Doğrudan fotoğraf modu
+        img_copy = img.copy()
+        img_copy.thumbnail((360, 520), Image.LANCZOS)
+        px = (W - img_copy.width) // 2
+        py = (H - img_copy.height) - 40
+        canvas.paste(img_copy, (px, py), img_copy if img_copy.mode == 'RGBA' else None)
+
+        draw = ImageDraw.Draw(canvas)
+        draw.line([(px + img_copy.width - 35, py + img_copy.height // 2), (px + img_copy.width - 35, H - 30)], fill=(180, 180, 190), width=6)
+        draw.ellipse([(px + img_copy.width - 48, py + img_copy.height // 2 - 25), (px + img_copy.width - 22, py + img_copy.height // 2 + 10)], fill=(80, 80, 90))
+
+    canvas.save(out_path, 'PNG')
+    _copy_to_static(cid)
+    return cid
+
+
 def _paste_character(frame: Image.Image, char_path: str,
-                     x: int, y: int, scale: float = 1.0, mouth_open: bool = False):
-    """Karakter PNG'yi frame'e yapıştır."""
+                     x: int, y: int, scale: float = 1.0, mouth_open: bool = False, bounce: int = 0):
+    """Karakter PNG'yi frame'e yapıştırır ve konuşma/zıplama animasyonu uygular."""
     try:
         char = Image.open(char_path).convert('RGBA')
         new_w = int(char.width * scale)
@@ -337,16 +412,17 @@ def _paste_character(frame: Image.Image, char_path: str,
         char = char.resize((new_w, new_h), Image.LANCZOS)
 
         if mouth_open:
-            # Basit ağız animasyonu: alt yarı hafif kaydır
-            top = char.crop((0, 0, new_w, new_h // 2))
-            bot = char.crop((0, new_h // 2, new_w, new_h))
-            shifted = Image.new('RGBA', (new_w, new_h + 6), (0, 0, 0, 0))
+            # Konuşma animasyonu: Yüz/çene hareketini simüle et
+            split_y = int(new_h * 0.42)
+            top = char.crop((0, 0, new_w, split_y))
+            bot = char.crop((0, split_y, new_w, new_h))
+            shifted = Image.new('RGBA', (new_w, new_h + 8), (0, 0, 0, 0))
             shifted.paste(top, (0, 0))
-            shifted.paste(bot, (0, new_h // 2 + 6))
-            char = shifted.crop((0, 0, new_w, new_h))
+            shifted.paste(bot, (0, split_y + 8))
+            char = shifted
 
-        paste_x = x - new_w // 2
-        paste_y = y - new_h
+        paste_x = x - char.width // 2
+        paste_y = y - char.height - bounce
         frame.paste(char, (paste_x, paste_y), char)
     except Exception as e:
         print(f'Karakter yapıştırma hata: {e}')
@@ -375,6 +451,38 @@ def _draw_subtitle(draw: ImageDraw.ImageDraw, text: str, speaker_name: str):
               align='center')
 
 
+def resolve_line_audio(line: dict, lang: str = 'tr'):
+    """Her satır için ses dosyasını (kullanıcı sesi, efekt veya TTS) ve süresini belirler."""
+    speaker = line.get('speaker', 'comedian')
+    text    = line.get('text', '')
+    custom_audio = line.get('custom_audio')
+
+    # 1. Kullanıcının kendi yüklediği/kaydettiği ses
+    if custom_audio:
+        fname = os.path.basename(custom_audio)
+        cand = os.path.join(AUDIO_DIR, fname)
+        if os.path.exists(cand):
+            dur = get_audio_duration(cand)
+            return cand, max(1.5, dur)
+
+    # 2. Efekt sesleri
+    if speaker in ('audience_laugh', 'audience_clap'):
+        eff = 'laugh.mp3' if speaker == 'audience_laugh' else 'clap.mp3'
+        eff_path = os.path.join(BASE_DIR, 'static_standup', 'sounds', eff)
+        if os.path.exists(eff_path):
+            return eff_path, 2.5
+        return None, 2.5
+
+    # 3. Metin varsa TTS üretimi
+    if text.strip():
+        audio_path = text_to_speech(text, speaker, lang)
+        if audio_path:
+            dur = get_audio_duration(audio_path)
+            return audio_path, max(1.5, dur)
+
+    return None, 3.0
+
+
 def _generate_video_worker(job_id: str, project: dict):
     """Arka planda video üret."""
     JOB_STORE[job_id] = {'status': 'running', 'progress': 0, 'result': None, 'error': None}
@@ -393,7 +501,6 @@ def _generate_video_worker(job_id: str, project: dict):
             if os.path.exists(p):
                 char_paths[role] = p
 
-        # Karakter pozisyonları
         CHAR_POS = {
             'comedian':  (VIDEO_W // 2, VIDEO_H - 155),
             'comedian2': (VIDEO_W // 3, VIDEO_H - 155),
@@ -418,18 +525,7 @@ def _generate_video_worker(job_id: str, project: dict):
             speaker = line.get('speaker', 'comedian')
             text    = line.get('text', '')
 
-            # Ses üret
-            audio_path = None
-            duration   = 3.0
-            if text.strip() and speaker not in ('audience_laugh', 'audience_clap'):
-                audio_path = text_to_speech(text, speaker, lang)
-                if audio_path:
-                    duration = get_audio_duration(audio_path)
-
-            elif speaker in ('audience_laugh', 'audience_clap'):
-                duration = 2.5
-
-            # Bu satır için frame sayısı
+            audio_path, duration = resolve_line_audio(line, lang)
             n_frames = max(int(duration * FPS), FPS)
 
             for f_idx in range(n_frames):
@@ -437,7 +533,7 @@ def _generate_video_worker(job_id: str, project: dict):
                 draw  = ImageDraw.Draw(frame)
                 _draw_stage_bg(draw, theme)
 
-                # Tüm karakterleri çiz (konuşan büyük, diğerleri küçük)
+                # Tüm karakterleri çiz
                 for role, pos in CHAR_POS.items():
                     cp = char_paths.get(role)
                     if not cp:
@@ -445,7 +541,8 @@ def _generate_video_worker(job_id: str, project: dict):
                     is_speaking = (role == speaker)
                     scale = 0.55 if is_speaking else 0.40
                     mouth_open = is_speaking and (f_idx % (FPS // 4) < FPS // 8)
-                    _paste_character(frame, cp, pos[0], pos[1], scale, mouth_open)
+                    bounce = 5 if (is_speaking and mouth_open) else 0
+                    _paste_character(frame, cp, pos[0], pos[1], scale, mouth_open, bounce=bounce)
 
                 # Altyazı
                 draw2 = ImageDraw.Draw(frame)
@@ -459,10 +556,6 @@ def _generate_video_worker(job_id: str, project: dict):
             JOB_STORE[job_id]['progress'] = int((idx + 1) / total * 90)
 
         writer.close()
-
-        # Ses dosyalarını video ile birleştir (basit concat yerine ffmpeg ile)
-        # Sadece video dosyası dön; ses zaten ayrı üretildi ve frame başına sync edildi
-        # Gerçek sync için moviepy kullan:
         _mux_audio_video(job_id, project, lines, video_path, char_paths, theme, lang, speaker_names)
 
     except Exception as e:
@@ -495,26 +588,8 @@ def _mux_audio_video(job_id, project, lines, silent_video, char_paths, theme, la
             speaker = line.get('speaker', 'comedian')
             text    = line.get('text', '')
 
-            audio_path = None
-            duration   = 3.0
-
-            if text.strip() and speaker not in ('audience_laugh', 'audience_clap'):
-                audio_path = text_to_speech(text, speaker, lang)
-                if audio_path:
-                    duration = get_audio_duration(audio_path)
-                    all_audio_segments.append(audio_path)
-                else:
-                    all_audio_segments.append(None)
-            else:
-                duration = 2.5
-                # Efekt sesleri (statik dosya)
-                eff = 'laugh.mp3' if speaker == 'audience_laugh' else 'clap.mp3'
-                eff_path = os.path.join(
-                    BASE_DIR, 'static_standup', 'sounds', eff)
-                if os.path.exists(eff_path):
-                    all_audio_segments.append(eff_path)
-                else:
-                    all_audio_segments.append(None)
+            audio_path, duration = resolve_line_audio(line, lang)
+            all_audio_segments.append(audio_path)
 
             n_frames = max(int(duration * FPS), FPS)
             for f_idx in range(n_frames):
@@ -529,7 +604,8 @@ def _mux_audio_video(job_id, project, lines, silent_video, char_paths, theme, la
                     is_speaking = (role == speaker)
                     scale = 0.55 if is_speaking else 0.40
                     mouth_open = is_speaking and (f_idx % (FPS // 4) < FPS // 8)
-                    _paste_character(frame, cp, pos[0], pos[1], scale, mouth_open)
+                    bounce = 5 if (is_speaking and mouth_open) else 0
+                    _paste_character(frame, cp, pos[0], pos[1], scale, mouth_open, bounce=bounce)
 
                 draw2 = ImageDraw.Draw(frame)
                 _draw_subtitle(draw2,
@@ -604,6 +680,68 @@ def api_create_character():
     cid     = generate_character_image(prompt, role, color)
     img_url = f'/static_standup/characters/{cid}.png'
     return jsonify({'cid': cid, 'img_url': img_url})
+
+
+@app.route('/api/upload-character', methods=['POST'])
+def api_upload_character():
+    """Kullanıcının kendi fotoğrafından animasyon karakteri oluşturur."""
+    if 'image' not in request.files:
+        return jsonify({'error': 'Fotoğraf seçilmedi'}), 400
+    img_file = request.files['image']
+    if not img_file or img_file.filename == '':
+        return jsonify({'error': 'Geçersiz dosya'}), 400
+
+    role  = request.form.get('role', 'comedian')
+    mode  = request.form.get('mode', 'bobblehead')
+    color = request.form.get('color', '#2c3e50')
+
+    try:
+        cid = create_custom_photo_character(img_file, role=role, mode=mode, body_color=color)
+        img_url = f'/static_standup/characters/{cid}.png'
+        return jsonify({'cid': cid, 'img_url': img_url})
+    except Exception as e:
+        return jsonify({'error': f'Fotoğraf işlenemedi: {str(e)}'}), 500
+
+
+@app.route('/api/upload-audio', methods=['POST'])
+def api_upload_audio():
+    """Kullanıcının kendi ses kaydını (mikrofon veya dosya) sisteme kaydeder."""
+    if 'audio' not in request.files:
+        return jsonify({'error': 'Ses dosyası seçilmedi'}), 400
+    f = request.files['audio']
+    if not f or f.filename == '':
+        return jsonify({'error': 'Geçersiz dosya'}), 400
+
+    aid = str(uuid.uuid4())[:8]
+    ext = os.path.splitext(f.filename)[1].lower() or '.mp3'
+    temp_path = os.path.join(AUDIO_DIR, f'temp_{aid}{ext}')
+    f.save(temp_path)
+
+    out_mp3 = os.path.join(AUDIO_DIR, f'{aid}.mp3')
+    import imageio_ffmpeg
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
+    try:
+        subprocess.run([
+            ffmpeg_exe, '-y', '-i', temp_path,
+            '-c:a', 'libmp3lame', '-b:a', '128k', out_mp3
+        ], capture_output=True, timeout=30)
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+    except Exception:
+        if not os.path.exists(out_mp3):
+            os.rename(temp_path, out_mp3)
+
+    dur = get_audio_duration(out_mp3)
+    return jsonify({
+        'aid': aid,
+        'audio_url': f'/audio/{aid}.mp3',
+        'duration': round(dur, 2)
+    })
+
 
 
 # ── Sahne / Senaryo ─────────────────────────────────────────────────────────

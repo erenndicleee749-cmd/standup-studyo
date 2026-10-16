@@ -379,7 +379,92 @@ input[type="color"] {
   gap: 24px; padding: 24px 32px;
 }
 
-.char-creator h3, .char-gallery h3 { font-size: 1.15rem; font-weight: 800; margin-bottom: 20px; }
+.char-creator h3, .char-gallery h3 { font-size: 1.15rem; font-weight: 800; margin-bottom: 16px; }
+
+/* ── Creator Tabs ── */
+.creator-tabs {
+  display: flex; gap: 8px; margin-bottom: 20px;
+  border-bottom: 1px solid var(--border); padding-bottom: 12px;
+}
+.creator-tab {
+  flex: 1; padding: 10px 14px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text-dim); cursor: pointer; font-size: 0.85rem; font-weight: 600;
+  transition: all 0.2s; text-align: center;
+}
+.creator-tab.active {
+  background: rgba(245,200,66,0.12); color: var(--gold); border-color: var(--gold);
+}
+.creator-tab:hover:not(.active) { color: var(--text); border-color: var(--gold-dim); }
+
+/* ── Upload Dropzone ── */
+.drop-zone {
+  border: 2px dashed var(--border); border-radius: 12px;
+  padding: 24px; text-align: center; cursor: pointer;
+  background: rgba(26,26,46,0.5); transition: all 0.2s;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--gold); background: rgba(245,200,66,0.05);
+}
+.drop-icon { font-size: 2.2rem; }
+.drop-text { font-size: 0.85rem; color: var(--text-dim); }
+.drop-sub { font-size: 0.75rem; color: var(--gold); font-weight: 600; }
+.photo-preview-box {
+  width: 140px; height: 160px; border-radius: 10px;
+  object-fit: cover; border: 2px solid var(--gold);
+  margin-top: 10px; display: none;
+}
+
+/* ── Mode selector ── */
+.photo-mode-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;
+}
+.photo-mode-btn {
+  padding: 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text-dim);
+  font-size: 0.8rem; cursor: pointer; text-align: center; transition: all 0.2s;
+}
+.photo-mode-btn.active {
+  border-color: var(--gold); color: var(--gold); background: rgba(245,200,66,0.1);
+}
+
+/* ── Audio Recorder / Upload in Voiceover ── */
+.rec-box {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px; margin-bottom: 16px;
+}
+.rec-box-title { font-size: 0.85rem; font-weight: 700; color: var(--gold); margin-bottom: 8px; }
+.rec-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.btn-rec {
+  background: rgba(231,76,60,0.15); color: #ff6b6b; border: 1px solid rgba(231,76,60,0.4);
+  padding: 8px 14px; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;
+}
+.btn-rec:hover { background: rgba(231,76,60,0.3); }
+.btn-rec.recording {
+  background: #e74c3c; color: #fff; animation: pulseRed 1s infinite;
+}
+@keyframes pulseRed { 0%,100%{opacity:1} 50%{opacity:0.6} }
+.voice-badge-custom {
+  font-size: 0.72rem; padding: 2px 8px; border-radius: 12px;
+  background: rgba(46,204,113,0.15); color: #2ecc71; border: 1px solid rgba(46,204,113,0.3);
+  font-weight: 600; display: inline-flex; align-items: center; gap: 4px;
+}
+.voice-badge-tts {
+  font-size: 0.72rem; padding: 2px 8px; border-radius: 12px;
+  background: rgba(123,97,255,0.15); color: #a29bfe; border: 1px solid rgba(123,97,255,0.3);
+  font-weight: 600;
+}
+.line-audio-actions {
+  display: flex; gap: 6px; align-items: center; margin-top: 6px;
+}
+.btn-micro-action {
+  padding: 4px 8px; border-radius: 6px; font-size: 0.75rem;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-micro-action:hover { border-color: var(--gold); color: var(--gold); }
 
 .role-selector { display: flex; flex-wrap: wrap; gap: 8px; }
 

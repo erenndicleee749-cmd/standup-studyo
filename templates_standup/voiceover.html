@@ -70,18 +70,50 @@
       </div>
     </div>
 
+    <!-- Kendi Sesini Kaydet veya Yükle Kartı -->
+    <div class="rec-box">
+      <div class="rec-box-title">🎙️ Kendi Sesini Ekle</div>
+      <p style="font-size:0.78rem; color:var(--text-dim); margin-bottom:10px;">
+        Kendi sesinizi mikrofonla doğrudan kaydedebilir veya MP3/WAV ses dosyası yükleyebilirsiniz.
+      </p>
+
+      <div class="rec-controls">
+        <button type="button" class="btn-rec" id="btn-mic-toggle" onclick="toggleMicRecording()">
+          <span id="mic-icon">🔴</span> <span id="mic-label">Mikrofonla Kaydet</span>
+        </button>
+        <span id="rec-timer" style="font-size:0.85rem; color:var(--gold); display:none; font-weight:700;">00:00</span>
+      </div>
+
+      <div style="margin-top:10px;">
+        <input type="file" id="voice-file-input" accept="audio/*" style="display:none;" onchange="onVoiceFileSelected(event)">
+        <button type="button" class="btn-secondary" style="font-size:0.8rem; padding:6px 12px; width:100%; justify-content:center;" onclick="document.getElementById('voice-file-input').click()">
+          📁 Ses Dosyası Yükle (.mp3, .wav)
+        </button>
+      </div>
+
+      <audio id="recorded-preview-player" controls style="display:none; width:100%; margin-top:10px;"></audio>
+
+      <div id="assign-voice-container" style="display:none; margin-top:10px; border-top:1px solid var(--border); padding-top:8px;">
+        <label style="font-size:0.75rem; color:var(--text-dim); display:block; margin-bottom:4px;">Bu sesi nereye uygula?</label>
+        <select id="assign-target-select" style="font-size:0.8rem; padding:6px;"></select>
+        <button type="button" class="btn-primary" style="font-size:0.8rem; padding:6px 12px; width:100%; justify-content:center; margin-top:6px;" onclick="applyUploadedVoice()">
+          ✅ Sesi Satıra Uygula
+        </button>
+      </div>
+    </div>
+
     <div class="tts-info">
       <div class="info-box">
-        <strong>🔊 TTS Motoru:</strong><br>
-        <span id="tts-engine-info">gTTS (Google Text-to-Speech) — Ücretsiz</span>
+        <strong>🔊 Seslendirme Durumu:</strong><br>
+        <span id="tts-engine-info">Kendi sesini yükleyebilir veya hazır Türkçe AI sesini kullanabilirsin.</span>
       </div>
     </div>
   </div>
 
   <!-- Sağ: Satır önizleme -->
   <div class="voice-preview panel">
-    <h3>🎧 Satır Önizleme</h3>
-    <p class="hint">Herhangi bir satırın sesini dinleyebilirsin.</p>
+    <h3>🎧 Satır Önizleme & Ses Yönetimi</h3>
+    <p class="hint">Her satır için ister kendi sesini ekle, ister AI ile seslendir.</p>
 
     <div class="voice-test">
       <textarea id="preview-text" rows="3"
@@ -92,7 +124,7 @@
           <option value="comedian2">🎤 2. Komedyen</option>
           <option value="host">🎙️ Sunucu</option>
         </select>
-        <button class="btn-primary" onclick="previewVoice()">▶ Dinle</button>
+        <button class="btn-primary" onclick="previewVoice()">▶ AI Sesi Dinle</button>
       </div>
       <audio id="preview-player" controls style="display:none; width:100%; margin-top:12px;"></audio>
       <div id="preview-loader" class="loader-box" style="display:none">
@@ -116,13 +148,21 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
 <script>
 const proj = JSON.parse(localStorage.getItem('su_project') || '{}');
 const lines = proj.lines || [];
 
+let mediaRecorder = null;
+let audioChunks = [];
+let recTimerInterval = null;
+let recSeconds = 0;
+let lastUploadedAudio = null; // { url, aid, duration }
+let lineUploadTargetIdx = null;
+
 function renderVoiceLines() {
   const container = document.getElementById('voice-lines-list');
+  const targetSelect = document.getElementById('assign-target-select');
+
   if (!lines.length) {
     container.innerHTML = '<p class="hint">Senaryo bulunamadı. <a href="/scene">Senaryoya git →</a></p>';
     return;
@@ -134,13 +174,207 @@ function renderVoiceLines() {
   container.innerHTML = lines.map((line, idx) => `
     <div class="voice-line-item">
       <div class="vl-header">
-        <span class="vl-speaker">${spNames[line.speaker] || line.speaker}</span>
-        <button class="vl-play" onclick="quickPlay(${idx})" ${!line.text?'disabled':''}>▶</button>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="vl-speaker">${spNames[line.speaker] || line.speaker}</span>
+          ${line.custom_audio ? `<span class="voice-badge-custom">🎤 Kendi Sesin</span>` : `<span class="voice-badge-tts">🔊 AI TTS</span>`}
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <button class="vl-play" onclick="quickPlay(${idx})" title="Dinle">▶ Oynat</button>
+          ${line.custom_audio ? `<button type="button" class="btn-micro-action" onclick="revertLineToTTS(${idx})" title="AI Sese Geri Dön">🔄 TTS'e Dön</button>` : ''}
+        </div>
       </div>
       <div class="vl-text">${line.text || '(efekt)'}</div>
+      <div class="line-audio-actions">
+        <button type="button" class="btn-micro-action" onclick="recordDirectlyForLine(${idx})">🎙️ Bu Satırı Seslendir</button>
+        <button type="button" class="btn-micro-action" onclick="uploadDirectlyForLine(${idx})">📁 Bu Satıra Ses Yükle</button>
+      </div>
       <audio id="audio-${idx}" style="display:none"></audio>
     </div>
   `).join('');
+
+  if (targetSelect) {
+    targetSelect.innerHTML = `<option value="all-comedian">Tüm Komedyen Satırlarına</option>` +
+      lines.map((l, i) => `<option value="${i}">#${i+1}: ${l.text ? l.text.substring(0,35) + '...' : '(efekt)'}</option>`).join('');
+  }
+}
+
+// ── Mikrofon Kaydı ─────────────────────────────────────────────────────────
+function toggleMicRecording(targetIdx = null) {
+  if (targetIdx !== null) lineUploadTargetIdx = targetIdx;
+
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    // Kaydı durdur
+    mediaRecorder.stop();
+    return;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('Tarayıcınız mikrofon erişimini desteklemiyor!', 'error');
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+
+      mediaRecorder.ondataavailable = e => {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        clearInterval(recTimerInterval);
+        document.getElementById('rec-timer').style.display = 'none';
+        document.getElementById('btn-mic-toggle').classList.remove('recording');
+        document.getElementById('mic-icon').textContent = '🔴';
+        document.getElementById('mic-label').textContent = 'Mikrofonla Kaydet';
+
+        // Stream parçalarını kapat
+        stream.getTracks().forEach(track => track.stop());
+
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        uploadAudioBlob(audioBlob, 'mic_record.webm');
+      };
+
+      mediaRecorder.start();
+
+      // UI güncelle
+      document.getElementById('btn-mic-toggle').classList.add('recording');
+      document.getElementById('mic-icon').textContent = '⏹️';
+      document.getElementById('mic-label').textContent = 'Kaydı Bitir';
+      document.getElementById('rec-timer').style.display = 'inline';
+
+      recSeconds = 0;
+      recTimerInterval = setInterval(() => {
+        recSeconds++;
+        const mins = String(Math.floor(recSeconds / 60)).padStart(2, '0');
+        const secs = String(recSeconds % 60).padStart(2, '0');
+        document.getElementById('rec-timer').textContent = `${mins}:${secs}`;
+      }, 1000);
+
+      showToast('Kayıt başladı! Mikrofonunuza konuşun...', 'info');
+    })
+    .catch(err => {
+      showToast('Mikrofon erişim izni verilmedi!', 'error');
+    });
+}
+
+function onVoiceFileSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  uploadAudioBlob(file, file.name);
+}
+
+function uploadAudioBlob(blob, filename) {
+  showToast('Ses yükleniyor ve optimize ediliyor...', 'info');
+  const formData = new FormData();
+  formData.append('audio', blob, filename);
+
+  fetch('/api/upload-audio', {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      showToast(data.error, 'error');
+      return;
+    }
+    lastUploadedAudio = data;
+
+    // Önizleme oynatıcı
+    const player = document.getElementById('recorded-preview-player');
+    player.src = data.audio_url;
+    player.style.display = 'block';
+    player.play();
+
+    document.getElementById('assign-voice-container').style.display = 'block';
+
+    // Eğer belirli bir satır için tıklandıysa doğrudan ona ata
+    if (lineUploadTargetIdx !== null && lines[lineUploadTargetIdx]) {
+      lines[lineUploadTargetIdx].custom_audio = data.audio_url;
+      saveAndSync();
+      renderVoiceLines();
+      showToast(`#${lineUploadTargetIdx+1} numaralı satıra ses başarıyla eklendi! 🎤`, 'success');
+      lineUploadTargetIdx = null;
+    } else {
+      showToast(`Ses hazır (${data.duration} sn)! Satıra uygulamak için aşağıdan seçin.`, 'success');
+    }
+  })
+  .catch(() => showToast('Ses yükleme hatası!', 'error'));
+}
+
+function applyUploadedVoice() {
+  if (!lastUploadedAudio) {
+    showToast('Önce bir ses kaydedin veya yükleyin!', 'warn');
+    return;
+  }
+  const target = document.getElementById('assign-target-select').value;
+  if (target === 'all-comedian') {
+    lines.forEach(l => {
+      if (l.speaker === 'comedian' && l.text) {
+        l.custom_audio = lastUploadedAudio.audio_url;
+      }
+    });
+    showToast('Tüm komedyen satırlarına kendi sesiniz atandı! 🎭', 'success');
+  } else {
+    const idx = parseInt(target);
+    if (lines[idx]) {
+      lines[idx].custom_audio = lastUploadedAudio.audio_url;
+      showToast(`#${idx+1} satırına sesiniz atandı!`, 'success');
+    }
+  }
+  saveAndSync();
+  renderVoiceLines();
+}
+
+function recordDirectlyForLine(idx) {
+  lineUploadTargetIdx = idx;
+  toggleMicRecording(idx);
+}
+
+function uploadDirectlyForLine(idx) {
+  lineUploadTargetIdx = idx;
+  document.getElementById('voice-file-input').click();
+}
+
+function revertLineToTTS(idx) {
+  if (lines[idx]) {
+    delete lines[idx].custom_audio;
+    saveAndSync();
+    renderVoiceLines();
+    showToast(`#${idx+1} satırı tekrar AI sesine döndürüldü.`, 'info');
+  }
+}
+
+function quickPlay(idx) {
+  const line = lines[idx];
+  const a = document.getElementById(`audio-${idx}`);
+
+  // 1. Kullanıcı kendi sesini yüklemişse doğrudan onu çal
+  if (line.custom_audio) {
+    a.src = line.custom_audio;
+    a.style.display = 'block';
+    a.play();
+    return;
+  }
+
+  // 2. Yoksa TTS önizleme üret
+  const speaker = line.speaker;
+  const lang    = document.getElementById('voice-lang').value;
+
+  fetch('/api/preview-voice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: line.text, speaker, lang })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) return;
+    a.src = data.audio_url;
+    a.style.display = 'block';
+    a.play();
+  });
 }
 
 function previewVoice() {
@@ -169,23 +403,13 @@ function previewVoice() {
   .finally(() => document.getElementById('preview-loader').style.display = 'none');
 }
 
-function quickPlay(idx) {
-  const line    = lines[idx];
-  const speaker = line.speaker;
-  const lang    = document.getElementById('voice-lang').value;
-
-  fetch('/api/preview-voice', {
+function saveAndSync() {
+  proj.lines = lines;
+  localStorage.setItem('su_project', JSON.stringify(proj));
+  fetch('/api/save-project', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: line.text, speaker, lang })
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.error) return;
-    const a = document.getElementById(`audio-${idx}`);
-    a.src = data.audio_url;
-    a.style.display = 'block';
-    a.play();
+    body: JSON.stringify(proj)
   });
 }
 
@@ -197,12 +421,8 @@ function goToPreview() {
     clap:  document.getElementById('eff-clap').checked,
     music: document.getElementById('eff-music').checked,
   };
-  localStorage.setItem('su_project', JSON.stringify(proj));
-  fetch('/api/save-project', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(proj)
-  }).then(() => window.location.href = '/preview');
+  saveAndSync();
+  window.location.href = '/preview';
 }
 
 renderVoiceLines();
