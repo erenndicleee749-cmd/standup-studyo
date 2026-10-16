@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Ortam
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Yuklenen dosyalar
+uploads/*.pdf
+uploads/*.docx
+uploads/*.xlsx
+uploads/*.csv
+uploads/*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Log
+*.log
+
+# Stand-Up Studyo - Uretilen dosyalar (buyuk, Git'e yuklenmesin)
+standup_data/
+outputs_standup/
+static_standup/audio/
+static_standup/characters/
+
+# Ama klasor yapisini koru
+!static_standup/audio/.gitkeep
+!static_standup/characters/.gitkeep

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}🎬 AI Stand-Up Stüdyosu{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<!-- ── Navbar ──────────────────────────────────────────────────────────── -->
+<nav class="navbar">
+  <a class="brand" href="/">🎬 Stand-Up Stüdyo</a>
+  <ul class="nav-steps">
+    <li><a href="/character" class="{% if request.endpoint == 'character_page' %}active{% endif %}">
+      <span class="step-num">1</span> Karakter</a></li>
+    <li><a href="/scene"     class="{% if request.endpoint == 'scene_page' %}active{% endif %}">
+      <span class="step-num">2</span> Senaryo</a></li>
+    <li><a href="/voiceover" class="{% if request.endpoint == 'voiceover_page' %}active{% endif %}">
+      <span class="step-num">3</span> Seslendirme</a></li>
+    <li><a href="/preview"   class="{% if request.endpoint == 'preview_page' %}active{% endif %}">
+      <span class="step-num">4</span> Video & İndir</a></li>
+  </ul>
+</nav>
+
+<!-- ── İçerik ─────────────────────────────────────────────────────────── -->
+<main class="main-content">
+  {% block content %}{% endblock %}
+</main>
+
+<!-- ── Toast bildirimleri ──────────────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

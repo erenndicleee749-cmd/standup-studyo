@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: standup-studyo
+    runtime: python
+    # ffmpeg + bagimliliklar
+    buildCommand: |
+      apt-get install -y ffmpeg &&
+      pip install -r standup_requirements.txt
+    # Gunicorn ile baslatma (timeout=300 video uretimi icin)
+    startCommand: gunicorn standup_wsgi:app --workers 1 --timeout 300 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: DATA_DIR
+        value: /opt/render/project/src/standup_data
+      - key: STANDUP_SECRET
+        generateValue: true
+      # Asagidakileri Render panelinden kendiniz ekleyin (opsiyonel):
+      # - key: OPENAI_API_KEY
+      #   value: sk-...
+      # - key: ELEVENLABS_API_KEY
+      #   value: ...
+    # Kalici disk: karakterler, sesler, videolar kaybolmasin
+    disk:
+      name: standup-data
+      mountPath: /opt/render/project/src/standup_data
+      sizeGB: 1

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}🎬 AI Stand-Up Stüdyosu{% endblock %}
+
+{% block content %}
+<!-- ── Hero ───────────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-bg">
+    <div class="spotlight sp1"></div>
+    <div class="spotlight sp2"></div>
+    <div class="spotlight sp3"></div>
+    <div class="audience-row">
+      {% for i in range(14) %}<div class="silhouette s{{ loop.index % 4 }}"></div>{% endfor %}
+    </div>
+  </div>
+  <div class="hero-content">
+    <div class="hero-badge">✨ Yapay Zeka ile Animasyon</div>
+    <h1 class="hero-title">
+      Stand-Up <span class="gold">Stüdyosu</span><br>
+      <span class="subtitle">Prompt yaz, video üret.</span>
+    </h1>
+    <p class="hero-desc">
+      Animasyon karakterler tasarla, stand-up senaryosu oluştur,<br>
+      seslendirme ekle ve <strong>5 dakikalık videonu indir.</strong>
+    </p>
+    <a href="/character" class="btn-primary btn-hero">🚀 Hemen Başla</a>
+  </div>
+</section>
+
+<!-- ── Özellikler ─────────────────────────────────────────────────────────── -->
+<section class="features">
+  <div class="feature-grid">
+    <div class="feature-card" data-step="1">
+      <div class="feature-icon">🎨</div>
+      <h3>Karakter Tasarla</h3>
+      <p>Prompt ile AI destekli animasyon karakterler oluştur. Komedyen, sunucu, seyirci — dilediğin gibi özelleştir.</p>
+      <a href="/character" class="btn-secondary">Başla →</a>
+    </div>
+    <div class="feature-card" data-step="2">
+      <div class="feature-icon">📝</div>
+      <h3>Senaryo Yaz</h3>
+      <p>GPT destekli senaryo üretici ile dakikalar içinde eğlenceli stand-up diyalogları oluştur.</p>
+      <a href="/scene" class="btn-secondary">Başla →</a>
+    </div>
+    <div class="feature-card" data-step="3">
+      <div class="feature-icon">🎙️</div>
+      <h3>Seslendirme Ekle</h3>
+      <p>Her karaktere farklı ses tonu ata. Kahkaha ve alkış efektleri ekle. Türkçe TTS ile anında seslendirme.</p>
+      <a href="/voiceover" class="btn-secondary">Başla →</a>
+    </div>
+    <div class="feature-card" data-step="4">
+      <div class="feature-icon">🎬</div>
+      <h3>Video Üret & İndir</h3>
+      <p>Tüm sahneyi MP4 formatında birleştir. 5 dakikalık stand-up videonuzu HD kalitede indirin.</p>
+      <a href="/preview" class="btn-secondary">Başla →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Nasıl Çalışır ──────────────────────────────────────────────────────── -->
+<section class="how-it-works">
+  <h2 class="section-title">Nasıl Çalışır?</h2>
+  <div class="steps-timeline">
+    <div class="step-item">
+      <div class="step-circle">1</div>
+      <div class="step-body">
+        <h4>Karakter Oluştur</h4>
+        <p>Komedyenini, sunucunu ve seyircilerini prompt ile tasarla</p>
+      </div>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step-item">
+      <div class="step-circle">2</div>
+      <div class="step-body">
+        <h4>Senaryo Yaz</h4>
+        <p>Konu gir, AI senaryonu yazsın veya kendin düzenle</p>
+      </div>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step-item">
+      <div class="step-circle">3</div>
+      <div class="step-body">
+        <h4>Seslendirme</h4>
+        <p>Her karaktere ses ata, efektler ekle</p>
+      </div>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step-item">
+      <div class="step-circle">4</div>
+      <div class="step-body">
+        <h4>İndir</h4>
+        <p>MP4 formatında hazır videonuzu indirin</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Hızlı Başlat ───────────────────────────────────────────────────────── -->
+<section class="quick-start">
+  <div class="quick-card">
+    <h3>⚡ Hızlı Başlangıç</h3>
+    <p>Hazır şablonlardan birini seç ve saniyeler içinde başla:</p>
+    <div class="template-grid">
+      <button class="template-btn" onclick="quickStart('tek')">
+        🎤 Tek Komedyen<br><small>1 komedyen + seyirci</small>
+      </button>
+      <button class="template-btn" onclick="quickStart('cift')">
+        🎤🎤 Çift Stand-Up<br><small>2 komedyen + seyirci</small>
+      </button>
+      <button class="template-btn" onclick="quickStart('gala')">
+        🎭 Gala Gecesi<br><small>Sunucu + komedyen</small>
+      </button>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function quickStart(type) {
+  const templates = {
+    tek:  { type: 'single', theme: 'club',    speakers: ['comedian'] },
+    cift: { type: 'duo',    theme: 'theatre', speakers: ['comedian', 'comedian2'] },
+    gala: { type: 'gala',   theme: 'studio',  speakers: ['host', 'comedian'] },
+  };
+  const tpl = templates[type];
+  fetch('/api/save-project', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tpl)
+  }).then(() => window.location.href = '/character');
+}
+</script>
+{% endblock %}

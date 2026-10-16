@@ -1,0 +1,11 @@
+# Stand-Up Stüdyo API Anahtarları
+# Bu dosyayı .env olarak kaydet
+
+# OpenAI (DALL-E 3 + GPT-4) — opsiyonel, yoksa yerel fallback kullanılır
+OPENAI_API_KEY=
+
+# ElevenLabs (kaliteli Türkçe TTS) — opsiyonel, yoksa gTTS kullanılır
+ELEVENLABS_API_KEY=
+
+# Uygulama gizli anahtarı (değiştir)
+STANDUP_SECRET=standup-gizli-anahtar-degistir-2024

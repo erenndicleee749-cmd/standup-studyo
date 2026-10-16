@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% block title %}Video Üret & İndir — Stand-Up Stüdyo{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>🎬 Video Üret & İndir</h2>
+  <p>Sahnen hazır! Video üretmeyi başlat ve MP4 olarak indir.</p>
+</div>
+
+<div class="preview-studio">
+
+  <!-- Sol: Proje özeti -->
+  <div class="project-summary panel">
+    <h3>📋 Proje Özeti</h3>
+
+    <div class="summary-grid">
+      <div class="summary-item">
+        <span class="sum-icon">👥</span>
+        <div>
+          <div class="sum-label">Karakterler</div>
+          <div id="sum-chars" class="sum-value">—</div>
+        </div>
+      </div>
+      <div class="summary-item">
+        <span class="sum-icon">📄</span>
+        <div>
+          <div class="sum-label">Senaryo Satırı</div>
+          <div id="sum-lines" class="sum-value">—</div>
+        </div>
+      </div>
+      <div class="summary-item">
+        <span class="sum-icon">⏱️</span>
+        <div>
+          <div class="sum-label">Tahmini Süre</div>
+          <div id="sum-duration" class="sum-value">—</div>
+        </div>
+      </div>
+      <div class="summary-item">
+        <span class="sum-icon">🎨</span>
+        <div>
+          <div class="sum-label">Sahne Teması</div>
+          <div id="sum-theme" class="sum-value">—</div>
+        </div>
+      </div>
+      <div class="summary-item">
+        <span class="sum-icon">🌐</span>
+        <div>
+          <div class="sum-label">Seslendirme Dili</div>
+          <div id="sum-lang" class="sum-value">—</div>
+        </div>
+      </div>
+      <div class="summary-item">
+        <span class="sum-icon">📐</span>
+        <div>
+          <div class="sum-label">Video Boyutu</div>
+          <div class="sum-value">1280×720 (HD)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="char-preview-row" id="char-preview-row"></div>
+
+    <div class="render-settings">
+      <h4>⚙️ Render Ayarları</h4>
+      <label class="toggle-row">
+        <input type="checkbox" id="opt-subtitles" checked>
+        <span>Altyazı ekle</span>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="opt-spotlight" checked>
+        <span>Spotlight efekti</span>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="opt-audience">
+        <span>Seyirci sesi (fon)</span>
+      </label>
+    </div>
+
+    <div class="links-row">
+      <a href="/character" class="btn-ghost">← Karakter</a>
+      <a href="/scene"     class="btn-ghost">← Senaryo</a>
+      <a href="/voiceover" class="btn-ghost">← Ses</a>
+    </div>
+  </div>
+
+  <!-- Sağ: Video üretimi -->
+  <div class="render-panel panel">
+    <h3>🎬 Video Üretimi</h3>
+
+    <!-- Başlamadan önce -->
+    <div id="render-idle">
+      <div class="render-hero">
+        <div class="clapboard">🎬</div>
+        <h4>Videonuzu oluşturmaya hazır mısınız?</h4>
+        <p>Tüm adımları tamamladıysanız "Video Üret" butonuna tıklayın.<br>
+           İşlem senaryo uzunluğuna göre <strong>1–5 dakika</strong> sürebilir.</p>
+      </div>
+      <button class="btn-primary btn-render" id="btn-start-render" onclick="startRender()">
+        🚀 Video Üret
+      </button>
+    </div>
+
+    <!-- Render sürerken -->
+    <div id="render-progress" style="display:none">
+      <div class="progress-anim">
+        <div class="film-reel">🎞️</div>
+        <h4 id="render-status-text">Sahne oluşturuluyor...</h4>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+        <span class="progress-pct" id="progress-pct">0%</span>
+      </div>
+      <div class="render-log" id="render-log">
+        <p>⏳ Seslendirme üretiliyor...</p>
+      </div>
+    </div>
+
+    <!-- Tamamlandı -->
+    <div id="render-done" style="display:none">
+      <div class="done-anim">🎉</div>
+      <h3>Video Hazır!</h3>
+      <p>Stand-up videosu başarıyla oluşturuldu.</p>
+
+      <div class="video-player-wrap">
+        <video id="result-video" controls style="width:100%; border-radius:12px; max-height:360px;"></video>
+      </div>
+
+      <div class="download-actions">
+        <a id="btn-download" class="btn-primary btn-download" download="standup_video.mp4">
+          ⬇️ MP4 İndir
+        </a>
+        <button class="btn-secondary" onclick="restartRender()">🔄 Yeniden Üret</button>
+        <a href="/" class="btn-ghost">🏠 Ana Sayfa</a>
+      </div>
+    </div>
+
+    <!-- Hata -->
+    <div id="render-error" style="display:none">
+      <div class="error-icon">❌</div>
+      <h4>Bir hata oluştu</h4>
+      <p id="render-error-msg"></p>
+      <button class="btn-primary" onclick="restartRender()">Tekrar Dene</button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const proj = JSON.parse(localStorage.getItem('su_project') || '{}');
+let pollTimer = null;
+let currentJobId = null;
+
+const themeNames = {
+  club: '🍺 Gece Kulübü', theatre: '🎭 Tiyatro',
+  street: '🌆 Sokak', studio: '🎬 Stüdyo'
+};
+const langNames = { tr: '🇹🇷 Türkçe', en: '🇬🇧 İngilizce', de: '🇩🇪 Almanca', fr: '🇫🇷 Fransızca' };
+
+function loadSummary() {
+  const chars  = proj.characters || {};
+  const lines  = proj.lines || [];
+  const dur    = Math.round(lines.reduce((s,l) => s + (l.text ? l.text.split(' ').length*0.4+1 : 2), 0));
+
+  document.getElementById('sum-chars').textContent    = Object.keys(chars).length + ' karakter';
+  document.getElementById('sum-lines').textContent    = lines.length + ' satır';
+  document.getElementById('sum-duration').textContent = `~${dur} saniye`;
+  document.getElementById('sum-theme').textContent    = themeNames[proj.theme] || proj.theme || '—';
+  document.getElementById('sum-lang').textContent     = langNames[proj.lang]  || '🇹🇷 Türkçe';
+
+  // Karakter görselleri
+  const rowEl = document.getElementById('char-preview-row');
+  const roleNames = { comedian:'Komedyen', comedian2:'2. Komedyen', host:'Sunucu', audience:'Seyirci' };
+  rowEl.innerHTML = Object.entries(chars).map(([role, cid]) => `
+    <div class="mini-char">
+      <img src="/static_standup/characters/${cid}.png" alt="${roleNames[role]||role}">
+      <small>${roleNames[role]||role}</small>
+    </div>
+  `).join('');
+}
+
+function startRender() {
+  if (!proj.lines || !proj.lines.length) {
+    showToast('Senaryo bulunamadı! Lütfen önce senaryo oluştur.', 'error');
+    return;
+  }
+  document.getElementById('render-idle').style.display = 'none';
+  document.getElementById('render-progress').style.display = 'block';
+
+  fetch('/api/start-video', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(proj)
+  })
+  .then(r => r.json())
+  .then(data => {
+    currentJobId = data.job_id;
+    pollStatus();
+  })
+  .catch(() => showError('Video başlatılamadı!'));
+}
+
+function pollStatus() {
+  if (!currentJobId) return;
+  fetch(`/api/video-status/${currentJobId}`)
+    .then(r => r.json())
+    .then(data => {
+      updateProgress(data.progress || 0, data.status);
+
+      if (data.status === 'done') {
+        showDone(data.result);
+      } else if (data.status === 'error') {
+        showError(data.error || 'Bilinmeyen hata');
+      } else {
+        pollTimer = setTimeout(pollStatus, 2000);
+      }
+    })
+    .catch(() => { pollTimer = setTimeout(pollStatus, 3000); });
+}
+
+const statusMsgs = [
+  [0,  15, '⏳ Karakterler hazırlanıyor...'],
+  [15, 40, '🎙️ Seslendirme oluşturuluyor...'],
+  [40, 75, '🖼️ Animasyon frame\'leri çiziliyor...'],
+  [75, 90, '🎬 Video birleştiriliyor...'],
+  [90, 99, '🔊 Ses ile video eşleştiriliyor...'],
+];
+
+function updateProgress(pct, status) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent  = pct + '%';
+
+  const msg = statusMsgs.find(([lo, hi]) => pct >= lo && pct < hi);
+  if (msg) document.getElementById('render-status-text').textContent = msg[2];
+}
+
+function showDone(fname) {
+  clearTimeout(pollTimer);
+  document.getElementById('render-progress').style.display = 'none';
+  document.getElementById('render-done').style.display = 'block';
+
+  const videoUrl = `/download/${fname}`;
+  document.getElementById('result-video').src   = videoUrl;
+  document.getElementById('btn-download').href  = videoUrl;
+  showToast('Video hazır! 🎉', 'success');
+}
+
+function showError(msg) {
+  clearTimeout(pollTimer);
+  document.getElementById('render-progress').style.display = 'none';
+  document.getElementById('render-error').style.display    = 'block';
+  document.getElementById('render-error-msg').textContent  = msg;
+}
+
+function restartRender() {
+  document.getElementById('render-done').style.display  = 'none';
+  document.getElementById('render-error').style.display = 'none';
+  document.getElementById('render-idle').style.display  = 'block';
+  document.getElementById('progress-fill').style.width  = '0%';
+}
+
+loadSummary();
+</script>
+{% endblock %}

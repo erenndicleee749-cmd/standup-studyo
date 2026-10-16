@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Seslendirme — Stand-Up Stüdyo{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>🎙️ Seslendirme Ekranı</h2>
+  <p>Her karaktere ses tonu ata ve seslendirmeyi önizle.</p>
+</div>
+
+<div class="voice-studio">
+
+  <!-- Sol: Ses ayarları -->
+  <div class="voice-settings panel">
+    <h3>Ses Ayarları</h3>
+
+    <div class="form-group">
+      <label>Dil</label>
+      <select id="voice-lang">
+        <option value="tr">🇹🇷 Türkçe</option>
+        <option value="en">🇬🇧 İngilizce</option>
+        <option value="de">🇩🇪 Almanca</option>
+        <option value="fr">🇫🇷 Fransızca</option>
+      </select>
+    </div>
+
+    <div class="voice-assignments">
+      <h4>Karakter Sesleri</h4>
+      <div class="voice-row">
+        <span class="voice-icon">🎤</span>
+        <span class="voice-label">Komedyen</span>
+        <select id="v-comedian">
+          <option value="comedian">Erkek - Derin</option>
+          <option value="comedian_young">Erkek - Genç</option>
+          <option value="host">Erkek - Resmi</option>
+        </select>
+      </div>
+      <div class="voice-row">
+        <span class="voice-icon">🎤</span>
+        <span class="voice-label">2. Komedyen</span>
+        <select id="v-comedian2">
+          <option value="comedian2">Kadın - Neşeli</option>
+          <option value="comedian">Erkek - Derin</option>
+        </select>
+      </div>
+      <div class="voice-row">
+        <span class="voice-icon">🎙️</span>
+        <span class="voice-label">Sunucu</span>
+        <select id="v-host">
+          <option value="host">Erkek - Resmi</option>
+          <option value="comedian">Erkek - Derin</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group mt-2">
+      <label>Efekt Sesleri</label>
+      <div class="effect-toggles">
+        <label class="toggle-row">
+          <input type="checkbox" id="eff-laugh" checked>
+          <span>😂 Kahkaha efekti</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="eff-clap" checked>
+          <span>👏 Alkış efekti</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="eff-music">
+          <span>🎵 Giriş müziği</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="tts-info">
+      <div class="info-box">
+        <strong>🔊 TTS Motoru:</strong><br>
+        <span id="tts-engine-info">gTTS (Google Text-to-Speech) — Ücretsiz</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sağ: Satır önizleme -->
+  <div class="voice-preview panel">
+    <h3>🎧 Satır Önizleme</h3>
+    <p class="hint">Herhangi bir satırın sesini dinleyebilirsin.</p>
+
+    <div class="voice-test">
+      <textarea id="preview-text" rows="3"
+        placeholder="Test metni yaz veya senaryo satırlarından birini seç...">Merhaba arkadaşlar! Bu akşam çok eğlenceli bir gece sizi bekliyor!</textarea>
+      <div class="preview-controls">
+        <select id="preview-speaker">
+          <option value="comedian">🎤 Komedyen</option>
+          <option value="comedian2">🎤 2. Komedyen</option>
+          <option value="host">🎙️ Sunucu</option>
+        </select>
+        <button class="btn-primary" onclick="previewVoice()">▶ Dinle</button>
+      </div>
+      <audio id="preview-player" controls style="display:none; width:100%; margin-top:12px;"></audio>
+      <div id="preview-loader" class="loader-box" style="display:none">
+        <div class="spinner"></div><p>Ses üretiliyor...</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h4>📋 Senaryo Satırları</h4>
+    <div id="voice-lines-list" class="voice-lines-list">
+      <p class="hint">Senaryo satırları yükleniyor...</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="page-footer-actions">
+  <a href="/scene" class="btn-secondary">← Geri: Senaryo</a>
+  <button class="btn-primary" onclick="goToPreview()">Devam: Video Üret →</button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const proj = JSON.parse(localStorage.getItem('su_project') || '{}');
+const lines = proj.lines || [];
+
+function renderVoiceLines() {
+  const container = document.getElementById('voice-lines-list');
+  if (!lines.length) {
+    container.innerHTML = '<p class="hint">Senaryo bulunamadı. <a href="/scene">Senaryoya git →</a></p>';
+    return;
+  }
+
+  const spNames = { comedian:'🎤 Komedyen', comedian2:'🎤 2.Komedyen',
+                    host:'🎙️ Sunucu', audience_laugh:'😂 Kahkaha', audience_clap:'👏 Alkış' };
+
+  container.innerHTML = lines.map((line, idx) => `
+    <div class="voice-line-item">
+      <div class="vl-header">
+        <span class="vl-speaker">${spNames[line.speaker] || line.speaker}</span>
+        <button class="vl-play" onclick="quickPlay(${idx})" ${!line.text?'disabled':''}>▶</button>
+      </div>
+      <div class="vl-text">${line.text || '(efekt)'}</div>
+      <audio id="audio-${idx}" style="display:none"></audio>
+    </div>
+  `).join('');
+}
+
+function previewVoice() {
+  const text    = document.getElementById('preview-text').value.trim();
+  const speaker = document.getElementById('preview-speaker').value;
+  const lang    = document.getElementById('voice-lang').value;
+  if (!text) { showToast('Metin gir!', 'warn'); return; }
+
+  document.getElementById('preview-loader').style.display = 'flex';
+  document.getElementById('preview-player').style.display = 'none';
+
+  fetch('/api/preview-voice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, speaker, lang })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) { showToast(data.error, 'error'); return; }
+    const player = document.getElementById('preview-player');
+    player.src = data.audio_url;
+    player.style.display = 'block';
+    player.play();
+  })
+  .catch(() => showToast('Ses üretme hatası!', 'error'))
+  .finally(() => document.getElementById('preview-loader').style.display = 'none');
+}
+
+function quickPlay(idx) {
+  const line    = lines[idx];
+  const speaker = line.speaker;
+  const lang    = document.getElementById('voice-lang').value;
+
+  fetch('/api/preview-voice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: line.text, speaker, lang })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) return;
+    const a = document.getElementById(`audio-${idx}`);
+    a.src = data.audio_url;
+    a.style.display = 'block';
+    a.play();
+  });
+}
+
+function goToPreview() {
+  const lang = document.getElementById('voice-lang').value;
+  proj.lang  = lang;
+  proj.effects = {
+    laugh: document.getElementById('eff-laugh').checked,
+    clap:  document.getElementById('eff-clap').checked,
+    music: document.getElementById('eff-music').checked,
+  };
+  localStorage.setItem('su_project', JSON.stringify(proj));
+  fetch('/api/save-project', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(proj)
+  }).then(() => window.location.href = '/preview');
+}
+
+renderVoiceLines();
+</script>
+{% endblock %}
