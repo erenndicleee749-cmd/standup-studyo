@@ -395,21 +395,35 @@ def text_to_speech(text: str, speaker: str, lang: str = 'tr') -> str | None:
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
         # Konuşmacıya göre ses filtresi belirle:
-        # Komedyen (Erkek): Frekansı %22 düşürerek tok, doğal ve erkeksi bir tona dönüştürür
-        if speaker == 'comedian':
-            af_filter = 'asetrate=24000*0.78,aresample=24000,atempo=1.28'
-        elif speaker == 'host':
-            # Sunucu: Tok, güçlü radyo spikeri sesi
-            af_filter = 'asetrate=24000*0.74,aresample=24000,atempo=1.35'
+        # Erkek Komedyen: Tok, derin ve doğal erkek sesi (rubberband pitch shift)
+        if speaker in ('comedian', 'comedian_male_deep', 'male'):
+            af_filter = 'rubberband=pitch=0.74,equalizer=f=125:width_type=h:width=80:g=6,equalizer=f=3500:width_type=h:width=1000:g=-4'
+        elif speaker in ('host', 'comedian_male'):
+            # Sunucu: Güçlü, tok radyo spikeri erkek sesi
+            af_filter = 'rubberband=pitch=0.76,equalizer=f=140:width_type=h:width=90:g=5,equalizer=f=3800:width_type=h:width=1000:g=-3'
+        elif speaker in ('comedian_young',):
+            # Genç erkek sesi
+            af_filter = 'rubberband=pitch=0.84,equalizer=f=180:width_type=h:width=100:g=3'
         else:
-            # 2. Komedyen (Kadın): Canlı kadın tonu
-            af_filter = 'asetrate=24000*1.04,aresample=24000,atempo=0.96'
+            # Kadın / Diğer
+            af_filter = 'equalizer=f=2500:width_type=h:width=500:g=2'
 
-        subprocess.run([
+        res = subprocess.run([
             ffmpeg_exe, '-y', '-i', raw_out,
             '-filter:a', af_filter,
             out
-        ], capture_output=True, timeout=15)
+        ], capture_output=True, timeout=20)
+
+        # Eğer rubberband filtresi desteklenmezse garantili asetrate fallback
+        if not os.path.exists(out) or os.path.getsize(out) == 0:
+            pitch_rate = 0.76 if speaker in ('comedian', 'host', 'comedian_male_deep', 'male') else 1.0
+            tempo = round(1.0 / pitch_rate, 2)
+            fallback_af = f'asetrate=24000*{pitch_rate},aresample=24000,atempo={tempo}'
+            subprocess.run([
+                ffmpeg_exe, '-y', '-i', raw_out,
+                '-filter:a', fallback_af,
+                out
+            ], capture_output=True, timeout=20)
 
         if os.path.exists(raw_out):
             try:
@@ -417,7 +431,7 @@ def text_to_speech(text: str, speaker: str, lang: str = 'tr') -> str | None:
             except Exception:
                 pass
 
-        if os.path.exists(out):
+        if os.path.exists(out) and os.path.getsize(out) > 0:
             return out
         return raw_out
     except Exception as e:
@@ -492,9 +506,16 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
             draw.rectangle([(sx, 280 - bh2), (sx + 18, 280)], fill=c2)
             draw.rectangle([(sx + 5, 280 - bh2 - 10), (sx + 13, 280 - bh2)], fill=c2)
 
-        # Parlayan Neon Tabela
-        draw.text((VIDEO_W // 2, 75), '★ STAND-UP COMEDY PUB & BAR ★',
-                  fill=(255, 70, 110), anchor='mm', font=_font(26))
+        # Parlayan Neon Tabela (Güvenli ortalama)
+        neon_txt = '★ STAND-UP COMEDY PUB & BAR ★'
+        fnt_neon = _font(26)
+        try:
+            nb = draw.textbbox((0, 0), neon_txt, font=fnt_neon)
+            nw = nb[2] - nb[0]
+        except Exception:
+            nw = len(neon_txt) * 14
+        draw.text(((VIDEO_W - nw) // 2, 62), neon_txt,
+                  fill=(255, 70, 110), font=fnt_neon)
 
         # Sıcak amber sahne spotu
         cx, cy = VIDEO_W // 2, 0
@@ -677,31 +698,44 @@ def _paste_character(frame: Image.Image, char_path: str,
 
 
 def _draw_subtitle(draw: ImageDraw.ImageDraw, text: str, speaker_name: str):
-    """Altyazı bandı çiz."""
+    """Altyazı bandı çiz (Pillow anchor hatası vermeyen güvenli çizim)."""
     if not text.strip():
         return
-    fnt_big = _font(28)
-    fnt_sm  = _font(20)
+    fnt_big = _font(26)
+    fnt_sm  = _font(19)
     band_y  = VIDEO_H - 125
 
-    # Altyazı arka plan (y0: 595, y1: 710 -> Pillow hata vermez)
+    # Altyazı arka plan
     draw.rectangle([(0, band_y), (VIDEO_W, VIDEO_H - 10)],
-                   fill=(0, 0, 0, 200))
+                   fill=(0, 0, 0, 205))
 
     # Konuşmacı adı
-    draw.text((VIDEO_W // 2, band_y + 10), speaker_name,
-              font=fnt_sm, fill=(255, 200, 50), anchor='mt')
+    try:
+        sb = draw.textbbox((0, 0), speaker_name, font=fnt_sm)
+        sw = sb[2] - sb[0]
+    except Exception:
+        sw = len(speaker_name) * 10
+    draw.text(((VIDEO_W - sw) // 2, band_y + 8), speaker_name,
+              font=fnt_sm, fill=(255, 205, 50))
 
-    # Metin (max 2 satır)
-    wrapped = textwrap.fill(text, width=70)
-    draw.text((VIDEO_W // 2, band_y + 38), wrapped,
-              font=fnt_big, fill=(255, 255, 255), anchor='mt',
-              align='center')
+    # Metin (max 2 satır, satır satır ortalanır — Pillow anchor hatası engellenir)
+    wrapped_lines = textwrap.wrap(text, width=65)[:2]
+    curr_y = band_y + 36
+    for l in wrapped_lines:
+        try:
+            lb = draw.textbbox((0, 0), l, font=fnt_big)
+            lw = lb[2] - lb[0]
+        except Exception:
+            lw = len(l) * 13
+        draw.text(((VIDEO_W - lw) // 2, curr_y), l,
+                  font=fnt_big, fill=(255, 255, 255))
+        curr_y += 32
 
 
-def resolve_line_audio(line: dict, lang: str = 'tr'):
+def resolve_line_audio(line: dict, lang: str = 'tr', voice_settings: dict = None):
     """Her satır için ses dosyasını (kullanıcı sesi, efekt veya TTS) ve süresini belirler."""
     speaker = line.get('speaker', 'comedian')
+    actual_voice = (voice_settings or {}).get(speaker, speaker)
     text    = line.get('text', '')
     custom_audio = line.get('custom_audio')
 
@@ -721,9 +755,9 @@ def resolve_line_audio(line: dict, lang: str = 'tr'):
             return eff_path, 2.5
         return None, 2.5
 
-    # 3. Metin varsa TTS üretimi
+    # 3. Metin varsa TTS üretimi (Seçilen erkek/kadın tonuyla)
     if text.strip():
-        audio_path = text_to_speech(text, speaker, lang)
+        audio_path = text_to_speech(text, actual_voice, lang)
         if audio_path:
             dur = get_audio_duration(audio_path)
             return audio_path, max(1.5, dur)
@@ -732,16 +766,19 @@ def resolve_line_audio(line: dict, lang: str = 'tr'):
 
 
 def _generate_video_worker(job_id: str, project: dict):
-    """Arka planda video üret."""
+    """Arka planda video üret (Tek geçişli, yüksek performanslı ve hatasız ses birleştirmeli)."""
     JOB_STORE[job_id] = {'status': 'running', 'progress': 0, 'result': None, 'error': None}
 
     try:
-        import imageio, math
+        import imageio, math, imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
         theme_key = project.get('theme', 'bar')
         lines     = project.get('lines', [])
         characters = project.get('characters', {})  # role -> cid
-        lang      = project.get('lang', 'tr')
-        custom_bg = project.get('custom_bg')
+        lang           = project.get('lang', 'tr')
+        voice_settings = project.get('voice_settings', {})
+        custom_bg      = project.get('custom_bg')
 
         custom_bg_path = None
         if custom_bg:
@@ -762,8 +799,10 @@ def _generate_video_worker(job_id: str, project: dict):
         }
 
         video_id = str(uuid.uuid4())[:8]
-        video_path = os.path.join(OUTPUT_DIR, f'{video_id}.mp4')
-        writer = imageio.get_writer(video_path, fps=FPS,
+        raw_video_path = os.path.join(OUTPUT_DIR, f'raw_{video_id}.mp4')
+        final_path     = os.path.join(OUTPUT_DIR, f'final_{video_id}.mp4')
+
+        writer = imageio.get_writer(raw_video_path, fps=FPS,
                                     codec='libx264', quality=7,
                                     macro_block_size=None,
                                     ffmpeg_params=['-pix_fmt', 'yuv420p'])
@@ -775,11 +814,15 @@ def _generate_video_worker(job_id: str, project: dict):
             'audience_clap': '👏 Alkış'
         }
 
+        all_audio_segments = []
+
         for idx, line in enumerate(lines):
             speaker = line.get('speaker', 'comedian')
             text    = line.get('text', '')
 
-            audio_path, duration = resolve_line_audio(line, lang)
+            audio_path, duration = resolve_line_audio(line, lang, voice_settings)
+            all_audio_segments.append(audio_path)
+
             n_frames = max(int(duration * FPS), FPS)
 
             for f_idx in range(n_frames):
@@ -800,102 +843,72 @@ def _generate_video_worker(job_id: str, project: dict):
 
                 # Altyazı
                 draw2 = ImageDraw.Draw(frame)
-                _draw_subtitle(draw2, text if speaker not in
-                               ('audience_laugh', 'audience_clap') else
-                               ('😂😂😂' if speaker == 'audience_laugh' else '👏👏👏'),
-                               speaker_names.get(speaker, speaker))
+                sub_txt = text if speaker not in ('audience_laugh', 'audience_clap') else ('😂😂😂' if speaker == 'audience_laugh' else '👏👏👏')
+                _draw_subtitle(draw2, sub_txt, speaker_names.get(speaker, speaker))
 
                 writer.append_data(np.array(frame))
 
-            JOB_STORE[job_id]['progress'] = int((idx + 1) / total * 90)
-
-        writer.close()
-        _mux_audio_video(job_id, project, lines, video_path, char_paths, theme_key, lang, speaker_names, custom_bg_path=custom_bg_path)
-
-    except Exception as e:
-        JOB_STORE[job_id]['status'] = 'error'
-        JOB_STORE[job_id]['error']  = str(e)
-        print(f'Video üretim hata: {e}')
-
-
-def _mux_audio_video(job_id, project, lines, silent_video, char_paths, theme_key, lang, speaker_names, custom_bg_path=None):
-    """Ses dosyalarını video ile birleştir (ffmpeg concat)."""
-    try:
-        import imageio, math
-        CHAR_POS  = {
-            'comedian':  (VIDEO_W // 2, VIDEO_H - 155),
-            'comedian2': (VIDEO_W // 3, VIDEO_H - 155),
-            'host':      (VIDEO_W // 4, VIDEO_H - 155),
-        }
-
-        video_id   = str(uuid.uuid4())[:8]
-        final_path = os.path.join(OUTPUT_DIR, f'final_{video_id}.mp4')
-        writer     = imageio.get_writer(final_path, fps=FPS, codec='libx264',
-                                        quality=7, macro_block_size=None,
-                                        ffmpeg_params=['-pix_fmt', 'yuv420p'])
-
-        all_audio_segments = []
-
-        for idx, line in enumerate(lines):
-            speaker = line.get('speaker', 'comedian')
-            text    = line.get('text', '')
-
-            audio_path, duration = resolve_line_audio(line, lang)
-            all_audio_segments.append(audio_path)
-
-            n_frames = max(int(duration * FPS), FPS)
-            for f_idx in range(n_frames):
-                frame = Image.new('RGB', (VIDEO_W, VIDEO_H), (0, 0, 0))
-                _draw_stage_bg(frame, theme_key, custom_bg_path=custom_bg_path)
-
-                for role, pos in CHAR_POS.items():
-                    cp = char_paths.get(role)
-                    if not cp:
-                        continue
-                    is_speaking = (role == speaker)
-                    scale = 0.55 if is_speaking else 0.40
-                    mouth_open = is_speaking and ((f_idx // 3) % 2 == 1)
-                    bounce = int(abs(math.sin(f_idx * 0.55)) * 6) if is_speaking else int(math.sin(f_idx * 0.12) * 2)
-                    tilt = math.sin(f_idx * 0.35) * 3.0 if is_speaking else 0.0
-                    _paste_character(frame, cp, pos[0], pos[1], scale, mouth_open=mouth_open, bounce=bounce, tilt=tilt)
-
-                draw2 = ImageDraw.Draw(frame)
-                _draw_subtitle(draw2,
-                               text if speaker not in ('audience_laugh', 'audience_clap')
-                               else ('😂😂😂' if speaker == 'audience_laugh' else '👏👏👏'),
-                               speaker_names.get(speaker, speaker))
-
-                writer.append_data(np.array(frame))
+            JOB_STORE[job_id]['progress'] = int((idx + 1) / max(1, total) * 85)
 
         writer.close()
 
-        # Ses birleştirme
+        # Ses birleştirme ve ses-video mux işlemi
         valid_segs = [s for s in all_audio_segments if s and os.path.exists(s)]
         if valid_segs:
-            import imageio_ffmpeg
-            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-            concat_list = os.path.join(OUTPUT_DIR, f'concat_{video_id}.txt')
-            with open(concat_list, 'w') as f:
-                for s in valid_segs:
-                    f.write(f"file '{s}'\n")
-
-            merged_audio = os.path.join(OUTPUT_DIR, f'audio_{video_id}.mp3')
-            subprocess.run([
-                ffmpeg_exe, '-y', '-f', 'concat', '-safe', '0',
-                '-i', concat_list, merged_audio
-            ], capture_output=True, timeout=120)
-
-            if os.path.exists(merged_audio):
-                muxed = os.path.join(OUTPUT_DIR, f'muxed_{video_id}.mp4')
+            JOB_STORE[job_id]['progress'] = 90
+            norm_segments = []
+            for s_idx, s in enumerate(valid_segs):
+                seg_wav = os.path.join(OUTPUT_DIR, f'norm_{video_id}_{s_idx}.wav')
                 subprocess.run([
-                    ffmpeg_exe, '-y',
-                    '-i', final_path,
-                    '-i', merged_audio,
-                    '-c:v', 'copy', '-c:a', 'aac',
-                    '-shortest', muxed
-                ], capture_output=True, timeout=120)
-                if os.path.exists(muxed):
-                    os.replace(muxed, final_path)
+                    ffmpeg_exe, '-y', '-i', s,
+                    '-ar', '44100', '-ac', '2', seg_wav
+                ], capture_output=True, timeout=30)
+                if os.path.exists(seg_wav):
+                    norm_segments.append(seg_wav)
+
+            if norm_segments:
+                concat_list = os.path.join(OUTPUT_DIR, f'concat_{video_id}.txt')
+                with open(concat_list, 'w', encoding='utf-8') as f:
+                    for ns in norm_segments:
+                        safe_path = ns.replace('\\', '/')
+                        f.write(f"file '{safe_path}'\n")
+
+                merged_audio = os.path.join(OUTPUT_DIR, f'audio_{video_id}.wav')
+                subprocess.run([
+                    ffmpeg_exe, '-y', '-f', 'concat', '-safe', '0',
+                    '-i', concat_list, '-c:a', 'pcm_s16le', merged_audio
+                ], capture_output=True, timeout=60)
+
+                if os.path.exists(merged_audio):
+                    subprocess.run([
+                        ffmpeg_exe, '-y',
+                        '-i', raw_video_path,
+                        '-i', merged_audio,
+                        '-c:v', 'copy', '-c:a', 'aac',
+                        '-shortest', final_path
+                    ], capture_output=True, timeout=60)
+
+                # Geçici wav parçalarını temizle
+                for ns in norm_segments:
+                    try:
+                        os.remove(ns)
+                    except Exception:
+                        pass
+                try:
+                    if os.path.exists(concat_list): os.remove(concat_list)
+                    if os.path.exists(merged_audio): os.remove(merged_audio)
+                except Exception:
+                    pass
+
+        if not os.path.exists(final_path):
+            if os.path.exists(raw_video_path):
+                os.replace(raw_video_path, final_path)
+        else:
+            if os.path.exists(raw_video_path):
+                try:
+                    os.remove(raw_video_path)
+                except Exception:
+                    pass
 
         JOB_STORE[job_id]['status']   = 'done'
         JOB_STORE[job_id]['progress'] = 100
@@ -904,7 +917,7 @@ def _mux_audio_video(job_id, project, lines, silent_video, char_paths, theme_key
     except Exception as e:
         JOB_STORE[job_id]['status'] = 'error'
         JOB_STORE[job_id]['error']  = str(e)
-        print(f'Mux hata: {e}')
+        print(f'Video üretim hata: {e}')
 
 
 # ═══════════════════════════════════════════════════════════════════════════

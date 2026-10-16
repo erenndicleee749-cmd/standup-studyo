@@ -28,10 +28,10 @@
       <div class="voice-row">
         <span class="voice-icon">🎤</span>
         <span class="voice-label">Komedyen</span>
-        <select id="v-comedian">
-          <option value="comedian">Erkek - Derin</option>
-          <option value="comedian_young">Erkek - Genç</option>
-          <option value="host">Erkek - Resmi</option>
+        <select id="v-comedian" onchange="saveAndSync()">
+          <option value="comedian">Erkek (Tok & Doğal Bariton)</option>
+          <option value="host">Erkek (Resmi Spiker)</option>
+          <option value="comedian_young">Erkek (Genç)</option>
         </select>
       </div>
       <div class="voice-row">
@@ -120,9 +120,10 @@
         placeholder="Test metni yaz veya senaryo satırlarından birini seç...">Merhaba arkadaşlar! Bu akşam çok eğlenceli bir gece sizi bekliyor!</textarea>
       <div class="preview-controls">
         <select id="preview-speaker">
-          <option value="comedian">🎤 Komedyen</option>
-          <option value="comedian2">🎤 2. Komedyen</option>
-          <option value="host">🎙️ Sunucu</option>
+          <option value="comedian">🎤 Komedyen (Tok Erkek Sesi)</option>
+          <option value="host">🎙️ Sunucu (Erkek Spiker Sesi)</option>
+          <option value="comedian_young">🎤 Genç Komedyen (Erkek)</option>
+          <option value="comedian2">🎤 2. Komedyen (Kadın Sesi)</option>
         </select>
         <button class="btn-primary" onclick="previewVoice()">▶ AI Sesi Dinle</button>
       </div>
@@ -375,12 +376,14 @@ function quickPlay(idx) {
   // 3. TTS önizleme üret
   const speaker = line.speaker;
   const lang    = document.getElementById('voice-lang')?.value || 'tr';
+  const voiceSelect = document.getElementById(`v-${speaker}`);
+  const actualVoice = voiceSelect ? voiceSelect.value : speaker;
 
-  showToast('Ses hazırlanıyor...', 'info');
+  showToast('Erkek sesi hazırlanıyor...', 'info');
   fetch('/api/preview-voice', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: line.text, speaker, lang })
+    body: JSON.stringify({ text: line.text, speaker: actualVoice, lang })
   })
   .then(r => r.json())
   .then(data => {
@@ -423,6 +426,11 @@ function previewVoice() {
 
 function saveAndSync() {
   proj.lines = lines;
+  proj.voice_settings = {
+    comedian: document.getElementById('v-comedian')?.value || 'comedian',
+    comedian2: document.getElementById('v-comedian2')?.value || 'comedian2',
+    host: document.getElementById('v-host')?.value || 'host'
+  };
   localStorage.setItem('su_project', JSON.stringify(proj));
   fetch('/api/save-project', {
     method: 'POST',
