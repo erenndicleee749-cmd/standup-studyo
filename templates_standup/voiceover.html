@@ -359,10 +359,25 @@ function quickPlay(idx) {
     return;
   }
 
-  // 2. Yoksa TTS önizleme üret
-  const speaker = line.speaker;
-  const lang    = document.getElementById('voice-lang').value;
+  // 2. Efekt sesleri (Kahkaha veya Alkış) doğrudan oynat
+  if (line.speaker === 'audience_laugh') {
+    a.src = '/static_standup/sounds/laugh.mp3';
+    a.style.display = 'block';
+    a.play();
+    return;
+  }
+  if (line.speaker === 'audience_clap') {
+    a.src = '/static_standup/sounds/clap.mp3';
+    a.style.display = 'block';
+    a.play();
+    return;
+  }
 
+  // 3. TTS önizleme üret
+  const speaker = line.speaker;
+  const lang    = document.getElementById('voice-lang')?.value || 'tr';
+
+  showToast('Ses hazırlanıyor...', 'info');
   fetch('/api/preview-voice', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -370,11 +385,15 @@ function quickPlay(idx) {
   })
   .then(r => r.json())
   .then(data => {
-    if (data.error) return;
+    if (data.error) {
+      showToast(data.error, 'error');
+      return;
+    }
     a.src = data.audio_url;
     a.style.display = 'block';
     a.play();
-  });
+  })
+  .catch(() => showToast('Ses çalma hatası!', 'error'));
 }
 
 function previewVoice() {

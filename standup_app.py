@@ -1071,14 +1071,24 @@ def voiceover_page():
 
 @app.route('/api/preview-voice', methods=['POST'])
 def api_preview_voice():
-    data    = request.json
+    """Önizleme sesi üretir veya efekt sesini döner."""
+    data    = request.json or {}
     text    = data.get('text', '')
     speaker = data.get('speaker', 'comedian')
     lang    = data.get('lang', 'tr')
-    path    = text_to_speech(text, speaker, lang)
-    if not path:
-        return jsonify({'error': 'Ses üretilemedi'}), 500
-    fname   = os.path.basename(path)
+
+    # Efekt sesleri (Kahkaha veya alkış)
+    if speaker in ('audience_laugh', 'audience_clap'):
+        eff = 'laugh.mp3' if speaker == 'audience_laugh' else 'clap.mp3'
+        return jsonify({'audio_url': f'/static_standup/sounds/{eff}'})
+
+    if not text.strip():
+        text = 'Merhaba sevgili seyirciler, bu akşamki gösterime hoş geldiniz!'
+
+    path = text_to_speech(text, speaker, lang)
+    if not path or not os.path.exists(path):
+        return jsonify({'error': 'Ses üretilemedi, lütfen tekrar deneyin'}), 500
+    fname = os.path.basename(path)
     return jsonify({'audio_url': f'/audio/{fname}'})
 
 
