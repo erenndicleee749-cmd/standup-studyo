@@ -261,17 +261,18 @@ def text_to_speech(text: str, speaker: str, lang: str = 'tr') -> str | None:
 
 
 def get_audio_duration(path: str) -> float:
-    """ffprobe ile ses süresi al."""
+    """imageio_ffmpeg ile ses süresi al."""
     try:
+        import imageio_ffmpeg, re
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         result = subprocess.run(
-            ['ffprobe', '-v', 'quiet', '-print_format', 'json',
-             '-show_streams', path],
+            [ffmpeg_exe, '-i', path, '-f', 'null', '-'],
             capture_output=True, text=True, timeout=10
         )
-        info = json.loads(result.stdout)
-        for s in info.get('streams', []):
-            if 'duration' in s:
-                return float(s['duration'])
+        m = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.?\d*)', result.stderr)
+        if m:
+            hours, mins, secs = m.groups()
+            return int(hours) * 3600 + int(mins) * 60 + float(secs)
     except Exception:
         pass
     return 3.0  # varsayılan 3 saniye
@@ -543,6 +544,8 @@ def _mux_audio_video(job_id, project, lines, silent_video, char_paths, theme, la
         # Ses birleştirme
         valid_segs = [s for s in all_audio_segments if s and os.path.exists(s)]
         if valid_segs:
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
             concat_list = os.path.join(OUTPUT_DIR, f'concat_{video_id}.txt')
             with open(concat_list, 'w') as f:
                 for s in valid_segs:
@@ -550,14 +553,14 @@ def _mux_audio_video(job_id, project, lines, silent_video, char_paths, theme, la
 
             merged_audio = os.path.join(OUTPUT_DIR, f'audio_{video_id}.mp3')
             subprocess.run([
-                'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+                ffmpeg_exe, '-y', '-f', 'concat', '-safe', '0',
                 '-i', concat_list, merged_audio
             ], capture_output=True, timeout=120)
 
             if os.path.exists(merged_audio):
                 muxed = os.path.join(OUTPUT_DIR, f'muxed_{video_id}.mp4')
                 subprocess.run([
-                    'ffmpeg', '-y',
+                    ffmpeg_exe, '-y',
                     '-i', final_path,
                     '-i', merged_audio,
                     '-c:v', 'copy', '-c:a', 'aac',
