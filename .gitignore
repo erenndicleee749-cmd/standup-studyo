@@ -42,6 +42,7 @@ standup_data/
 outputs_standup/
 static_standup/audio/
 static_standup/characters/
+data_standup/piper_models/*.onnx
 
 # Ama klasor yapisini koru
 !static_standup/audio/.gitkeep

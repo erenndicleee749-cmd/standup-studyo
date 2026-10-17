@@ -1,0 +1,11 @@
+flask==3.0.3
+flask-session==0.8.0
+flask-cors>=5.0.0
+Pillow==10.4.0
+requests==2.32.3
+python-dotenv==1.0.1
+gTTS==2.5.4
+imageio>=2.34.0
+imageio-ffmpeg>=0.5.1
+numpy>=1.26.0
+piper-tts>=1.8.0

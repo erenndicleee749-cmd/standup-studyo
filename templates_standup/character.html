@@ -31,16 +31,16 @@
       <div class="form-group">
         <label for="char-prompt">Karakter Açıklaması (Prompt)</label>
         <textarea id="char-prompt" rows="4"
-          placeholder="Örnek: Kırmızı bereli, şişman, bıyıklı, 40 yaşlarında komik bir komedyen. Elinde mikrofon tutuyor."></textarea>
+          placeholder="Örnek: Arda, kıvırcık saçlı sempatik barmen komedyen, yelekli papyonlu (Feride karikatür stili)."></textarea>
         <div class="prompt-tags">
-          <span class="tag" onclick="addTag('kırmızı bereli')">🎩 Kırmızı Bere</span>
+          <span class="tag" style="background:#8e44ad;color:#fff;" onclick="addTag('arda kıvırcık saçlı barmen yelekli papyonlu feride karikatür')">🍸 Arda (Kıvırcık Barmen)</span>
+          <span class="tag" onclick="addTag('Emir Sağlam Feride stili karikatür sevimli iri kafa kadın')">🎨 Feride (Kadın Komedyen)</span>
+          <span class="tag" onclick="addTag('barmen yelekli papyonlu kırmızı bereli')">🎩 Bereli Barmen</span>
           <span class="tag" onclick="addTag('şişman')">😄 Şişman</span>
           <span class="tag" onclick="addTag('bıyıklı')">👨 Bıyıklı</span>
           <span class="tag" onclick="addTag('gözlüklü')">🤓 Gözlüklü</span>
           <span class="tag" onclick="addTag('elinde mikrofon')">🎤 Mikrofon</span>
-          <span class="tag" onclick="addTag('genç')">🧑 Genç</span>
           <span class="tag" onclick="addTag('kadın')">👩 Kadın</span>
-          <span class="tag" onclick="addTag('yaşlı')">👴 Yaşlı</span>
         </div>
       </div>
 
@@ -150,6 +150,15 @@
 <script>
 // Karakter veritabanı (session)
 let characters = JSON.parse(localStorage.getItem('su_characters') || '{}');
+if (!characters['comedian']) {
+  characters['comedian'] = {
+    cid: 'arda_default',
+    img_url: '/static_standup/characters/arda_default.png',
+    prompt: 'Arda — Kıvırcık saçlı barmen komedyen (Feride karikatür stili)',
+    color: '#2c3e50'
+  };
+  localStorage.setItem('su_characters', JSON.stringify(characters));
+}
 let selectedRole = 'comedian';
 let selectedPhotoMode = 'bobblehead';
 let selectedPhotoFile = null;

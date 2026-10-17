@@ -8,6 +8,8 @@ import textwrap
 import threading
 import subprocess
 import io
+import math
+import re
 
 from flask import (Flask, render_template, request, jsonify,
                    send_file, session, url_for)
@@ -46,7 +48,9 @@ STATIC_CHAR_DIR  = os.path.join(BASE_DIR, 'static_standup', 'characters')
 STATIC_VENUE_DIR = os.path.join(BASE_DIR, 'static_standup', 'venues')
 FONT_PATH        = os.path.join(BASE_DIR, 'static_standup', 'fonts', 'DejaVuSans-Bold.ttf')
 
-for d in [CHAR_DIR, OUTPUT_DIR, AUDIO_DIR, VENUE_DIR,
+PIPER_DIR    = os.path.join(DATA_DIR, 'piper_models')
+
+for d in [CHAR_DIR, OUTPUT_DIR, AUDIO_DIR, VENUE_DIR, PIPER_DIR,
           STATIC_CHAR_DIR, STATIC_VENUE_DIR,
           os.path.join(BASE_DIR, 'static_standup', 'fonts')]:
     os.makedirs(d, exist_ok=True)
@@ -70,19 +74,39 @@ JOB_STORE: dict[str, dict] = {}  # job_id -> {status, progress, result}
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _font(size: int):
+    candidates = [
+        FONT_PATH,
+        'C:/Windows/Fonts/arialbd.ttf',
+        'C:/Windows/Fonts/arial.ttf',
+        'C:/Windows/Fonts/segoeuib.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            try:
+                return ImageFont.truetype(c, size)
+            except Exception:
+                pass
     try:
-        return ImageFont.truetype(FONT_PATH, size)
+        return ImageFont.truetype("arial.ttf", size)
     except Exception:
         return ImageFont.load_default()
 
 
+def _clean_no_emoji(s: str) -> str:
+    """Standart TTF fontlarının desteklemediği 4-byte emojileri temizler."""
+    return re.sub(r'[\U00010000-\U0010ffff]', '', s or '').strip()
+
+
 def generate_character_image(prompt: str, role: str, color: str) -> str:
-    """Karakter görseli üret — DALL·E, Pollinations AI veya gelişmiş yerel çizim."""
+    """Karakter görseli üret — Feride / Emir Sağlam 2D karikatür tarzında orijinal çizim."""
     cid = str(uuid.uuid4())[:8]
     out_path = os.path.join(CHAR_DIR, f'{cid}.png')
 
-    # 1. Öncelik: OpenAI DALL-E 3 (eğer anahtar varsa)
-    if OPENAI_KEY:
+    # 1. Öncelik: Kullanıcı özellikle 3D / gerçekçi istemişse ve OpenAI Key varsa DALL-E 3
+    p_lower = (prompt or '').lower()
+    if OPENAI_KEY and ('3d' in p_lower or 'gerçekçi' in p_lower or 'pixar' in p_lower):
         try:
             headers = {'Authorization': f'Bearer {OPENAI_KEY}',
                        'Content-Type': 'application/json'}
@@ -107,22 +131,7 @@ def generate_character_image(prompt: str, role: str, color: str) -> str:
         except Exception as e:
             print(f'DALL-E hata: {e}')
 
-    # 2. Öncelik: Pollinations.ai (Tamamen ÜCRETSİZ, API anahtarı istemez, gerçek 3D animasyon üretir)
-    try:
-        en_prompt = _translate_prompt_to_en(prompt, role)
-        full_ai_prompt = f"3d pixar disney style animated funny standup comedian {en_prompt}, holding microphone, full body on stage, vibrant colors, isolated on white background"
-        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(full_ai_prompt)}?width=512&height=512&nologo=true&seed={int(time.time()) % 10000}"
-        r = requests.get(url, timeout=18)
-        if r.status_code == 200 and len(r.content) > 5000:
-            with open(out_path, 'wb') as f:
-                f.write(r.content)
-            _make_transparent(out_path)
-            _copy_to_static(cid)
-            return cid
-    except Exception as e:
-        print(f'Pollinations AI hata: {e}')
-
-    # 3. Öncelik: Prompt anahtar kelimelerini okuyan akıllı yerel çizim
+    # 2. Öncelik: Emir Sağlam / Feride animasyonu tarzında orijinal 2D vektörel karikatür çizimi
     _draw_local_character(out_path, role, color, prompt)
     _copy_to_static(cid)
     return cid
@@ -184,97 +193,168 @@ def _make_transparent(img_path: str):
         print(f'Transparan yapma hata: {e}')
 
 
-def _draw_local_character(path: str, role: str, body_color: str, prompt: str):
-    """Prompt'taki kırmızı bere, bıyık, gözlük vb. özellikleri okuyarak çizen akıllı çizici."""
+def _draw_local_character(path: str, role: str = 'comedian', body_color: str = '#2c3e50', prompt: str = ''):
+    """Emir Sağlam / Feride (HBO Max / BluTV) 2D animasyon dizisi stilinde orijinal karakter çizimi."""
     W, H = 400, 600
     img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     p_lower = (prompt or '').lower()
     has_red_beret = ('kırmızı bere' in p_lower or 'kirmizi bere' in p_lower or 'bere' in p_lower)
-    has_hat       = ('şapka' in p_lower or 'sapka' in p_lower)
     has_mustache  = ('bıyık' in p_lower or 'biyik' in p_lower or 'bıyıklı' in p_lower)
-    has_beard     = ('sakal' in p_lower or 'sakallı' in p_lower or 'sakalli' in p_lower)
-    has_glasses   = ('gözlük' in p_lower or 'gozluk' in p_lower or 'gözlüklü' in p_lower)
-    is_chubby     = ('şişman' in p_lower or 'sisman' in p_lower or 'tombul' in p_lower or 'kilolu' in p_lower)
-    is_female     = ('kadın' in p_lower or 'kadin' in p_lower or 'kız' in p_lower)
-    is_elderly    = ('yaşlı' in p_lower or 'yasli' in p_lower or 'dede' in p_lower)
+    is_female     = ('kadın' in p_lower or 'kadin' in p_lower or 'feride' in p_lower or 'kız' in p_lower)
+
+    outline = (22, 18, 22)
+    skin = (255, 226, 202)
+    skin_shadow = (238, 202, 178)
 
     try:
         r, g, b = int(body_color[1:3], 16), int(body_color[3:5], 16), int(body_color[5:7], 16)
     except Exception:
-        r, g, b = 45, 65, 95
+        r, g, b = 44, 62, 80
 
-    skin = (255, 215, 175) if not is_elderly else (240, 205, 175)
+    # 1. Bacaklar & Ayakkabılar
+    draw.line([(180, 440), (180, 555)], fill=outline, width=8)
+    draw.line([(220, 440), (220, 555)], fill=outline, width=8)
+    draw.line([(180, 440), (180, 555)], fill=(35, 35, 40), width=4)
+    draw.line([(220, 440), (220, 555)], fill=(35, 35, 40), width=4)
+    draw.ellipse([158, 545, 192, 570], fill=(25, 25, 30), outline=outline, width=3)
+    draw.ellipse([208, 545, 242, 570], fill=(25, 25, 30), outline=outline, width=3)
 
-    # 1. Gövde
-    torso_w = 170 if is_chubby else 140
-    tx1, tx2 = 200 - torso_w // 2, 200 + torso_w // 2
-    draw.ellipse([tx1, 220, tx2, 430], fill=(r, g, b))
-
-    # Gömlek & Kravat
-    draw.polygon([(170, 220), (230, 220), (200, 290)], fill=(245, 245, 250))
-    draw.polygon([(194, 230), (206, 230), (209, 340), (200, 355), (191, 340)], fill=(210, 40, 40))
-
-    # Kollar
-    draw.ellipse([tx1 - 25, 230, tx1 + 35, 360], fill=(r, g, b))
-    draw.ellipse([tx2 - 35, 230, tx2 + 25, 360], fill=(r, g, b))
-
-    # Bacaklar & Ayakkabılar
-    draw.rectangle([140, 420, 185, 560], fill=(max(0, r - 25), max(0, g - 25), max(0, b - 25)))
-    draw.rectangle([215, 420, 260, 560], fill=(max(0, r - 25), max(0, g - 25), max(0, b - 25)))
-    draw.ellipse([115, 545, 190, 580], fill=(20, 20, 25))
-    draw.ellipse([210, 545, 285, 580], fill=(20, 20, 25))
-
-    # Kadın saçı (arka)
+    # 2. Gövde
     if is_female:
-        draw.ellipse([120, 70, 280, 270], fill=(110, 60, 30))
-
-    # 2. Baş
-    draw.ellipse([140, 70, 260, 220], fill=skin)
-
-    # Gözler
-    draw.ellipse([162, 125, 186, 149], fill=(30, 30, 30))
-    draw.ellipse([214, 125, 238, 149], fill=(30, 30, 30))
-    draw.ellipse([170, 129, 178, 137], fill=(255, 255, 255))
-    draw.ellipse([222, 129, 230, 137], fill=(255, 255, 255))
-
-    # 3. Kırmızı Bere veya Şapka
-    if has_red_beret:
-        # Kırmızı Fransız beresi
-        draw.ellipse([115, 42, 285, 118], fill=(215, 30, 40))
-        draw.ellipse([130, 78, 270, 120], fill=(175, 20, 30))
-        draw.rectangle([197, 34, 203, 48], fill=(150, 15, 25)) # Bere sapı
-    elif has_hat:
-        # Şapka
-        draw.ellipse([105, 75, 295, 105], fill=(35, 35, 40))
-        draw.rectangle([135, 40, 265, 85], fill=(35, 35, 40))
+        # Feride Orijinal Tişörtü (V yakalı, pembe şeritli)
+        draw.polygon([
+            (120, 310), (150, 260), (200, 252), (250, 260), (280, 310),
+            (285, 440), (115, 440)
+        ], fill=(250, 250, 255), outline=outline, width=4)
+        # Pembe V-Yaka şeridi (Feride'nin meşhur tişörtü)
+        draw.line([(175, 260), (200, 315)], fill=(235, 60, 95), width=5)
+        draw.line([(225, 260), (200, 315)], fill=(235, 60, 95), width=5)
     else:
-        # Saç
-        hair_color = (180, 180, 180) if is_elderly else (50, 35, 25)
-        draw.arc([135, 60, 265, 150], start=180, end=360, fill=hair_color, width=12)
+        # Barmen Tişörtü + Yeleği + Kırmızı Papyonu
+        draw.polygon([
+            (120, 310), (150, 260), (200, 252), (250, 260), (280, 310),
+            (285, 440), (115, 440)
+        ], fill=(245, 245, 250), outline=outline, width=4)
+        draw.polygon([(120, 310), (150, 260), (180, 260), (170, 440), (115, 440)], fill=(r, g, b), outline=outline, width=3)
+        draw.polygon([(280, 310), (250, 260), (220, 260), (230, 440), (285, 440)], fill=(r, g, b), outline=outline, width=3)
+        # Kırmızı V-çizgisi ve papyon
+        draw.line([(175, 260), (200, 305)], fill=(225, 40, 50), width=4)
+        draw.line([(225, 260), (200, 305)], fill=(225, 40, 50), width=4)
+        draw.polygon([(191, 280), (178, 270), (178, 292)], fill=(225, 40, 50), outline=outline, width=2)
+        draw.polygon([(209, 280), (222, 270), (222, 292)], fill=(225, 40, 50), outline=outline, width=2)
+        draw.ellipse([194, 274, 206, 286], fill=(190, 25, 35), outline=outline, width=2)
 
-    # 4. Gözlük
-    if has_glasses:
-        draw.ellipse([153, 117, 193, 157], outline=(30, 30, 35), width=4)
-        draw.ellipse([207, 117, 247, 157], outline=(30, 30, 35), width=4)
-        draw.line([(193, 137), (207, 137)], fill=(30, 30, 35), width=4)
+    # 3. İnce Uzun Zarif Boyun (Feride Dizisi İmzası)
+    neck_pts = [
+        (182, 195), (218, 195),
+        (222, 235), (232, 258),
+        (168, 258), (178, 235)
+    ]
+    draw.polygon(neck_pts, fill=skin, outline=outline, width=4)
+    draw.polygon([(178, 242), (222, 242), (232, 258), (168, 258)], fill=skin_shadow)
 
-    # 5. Bıyık & Sakal
-    if has_mustache:
-        draw.chord([162, 155, 200, 185], start=0, end=180, fill=(35, 25, 20))
-        draw.chord([200, 155, 238, 185], start=0, end=180, fill=(35, 25, 20))
+    # 4. Kollar ve Mikrofon
+    # Sol kol (Sarı/kırmızı manşetli, jest yapan kol)
+    draw.polygon([(120, 310), (135, 318), (128, 335), (113, 327)], fill=(240, 180, 40), outline=outline, width=2)
+    draw.line([(120, 325), (85, 370), (55, 345)], fill=outline, width=9)
+    draw.line([(120, 325), (85, 370), (55, 345)], fill=skin, width=5)
+    draw.polygon([(55, 345), (40, 332), (36, 344), (45, 356), (56, 355)], fill=skin, outline=outline, width=2)
 
-    if has_beard:
-        draw.chord([155, 175, 245, 235], start=0, end=180, fill=(45, 35, 30))
+    # Sağ kol (Mavi manşetli, mikrofon tutan kol)
+    draw.polygon([(280, 310), (265, 318), (272, 335), (287, 327)], fill=(40, 150, 225), outline=outline, width=2)
+    draw.line([(275, 325), (295, 365), (258, 295)], fill=outline, width=9)
+    draw.line([(275, 325), (295, 365), (258, 295)], fill=skin, width=5)
+    draw.ellipse([246, 285, 266, 305], fill=skin, outline=outline, width=3)
 
-    # 6. Gülümseyen Ağız
-    draw.arc([168, 168, 232, 204], start=10, end=170, fill=(175, 35, 40), width=4)
+    # Stand-up Mikrofonu
+    draw.line([(257, 300), (266, 350)], fill=(75, 75, 80), width=6)
+    draw.ellipse([248, 275, 266, 296], fill=(50, 50, 55), outline=outline, width=2)
+    draw.ellipse([251, 278, 263, 293], fill=(160, 160, 170))
 
-    # 7. Stand-up Mikrofonu
-    draw.line([(255, 240), (255, 460)], fill=(180, 180, 190), width=6)
-    draw.ellipse([(242, 210), (268, 245)], fill=(75, 75, 85))
-    draw.ellipse([(246, 215), (264, 240)], fill=(145, 145, 155))
+    # 5. Kafa Yapısı (Feride'nin armut/damla formu)
+    head_pts = []
+    for ang in range(160, 380, 10):
+        rad = math.radians(ang % 360)
+        rx = 200 + int(64 * math.cos(rad))
+        ry = 110 + int(56 * math.sin(rad))
+        head_pts.append((rx, ry))
+    head_pts.extend([
+        (254, 135), (242, 165), (226, 192), (212, 208),
+        (200, 210), (188, 208), (174, 192), (158, 165), (146, 135)
+    ])
+    draw.polygon(head_pts, fill=skin, outline=outline, width=4)
+
+    # Kulaklar
+    draw.arc([136, 118, 152, 146], start=90, end=270, fill=outline, width=3)
+    draw.arc([248, 118, 264, 146], start=270, end=90, fill=outline, width=3)
+
+    # 6. Saç / Şapka / Bere
+    if is_female:
+        # Feride Orijinal Turuncu Saçı + Beyaz Toka
+        # At kuyruğu (sola doğru sarkan)
+        draw.chord([95, 60, 175, 220], start=90, end=270, fill=(240, 120, 30), outline=outline, width=4)
+        # Beyaz saç tokası (incili bant)
+        for i, bx in enumerate([145, 156, 168]):
+            draw.ellipse([bx, 60 - i*2, bx + 14, 74 - i*2], fill=(255, 255, 255), outline=outline, width=2)
+        # Tepe saçı
+        draw.chord([120, 30, 275, 140], start=180, end=360, fill=(240, 120, 30), outline=outline, width=4)
+        # Alın perçemi (gözlerin yukarısına oturacak şekilde)
+        draw.polygon([(140, 75), (200, 60), (255, 75), (245, 92), (185, 95), (145, 90)], fill=(240, 120, 30), outline=outline, width=3)
+    elif has_red_beret:
+        # Pofuduk yana yatık kırmızı Fransız beresi
+        draw.ellipse([115, 25, 285, 96], fill=(225, 35, 45), outline=outline, width=4)
+        draw.ellipse([135, 60, 265, 96], fill=(195, 25, 35), outline=outline, width=3)
+        draw.rectangle([197, 12, 203, 27], fill=outline)
+        draw.chord([138, 70, 154, 125], start=90, end=270, fill=(45, 32, 25), outline=outline, width=3)
+        draw.chord([246, 70, 262, 125], start=270, end=90, fill=(45, 32, 25), outline=outline, width=3)
+    else:
+        # 🌟 Arda'nın İmzası: Hacimli Kıvırcık / Lüleli Saçları
+        curl_col = (28, 22, 24)
+        curl_border = (16, 12, 14)
+        curls = [
+            (135, 65, 24), (155, 48, 26), (182, 38, 28), (212, 36, 28), (242, 45, 27), (265, 62, 24),
+            (125, 90, 22), (122, 115, 20), (124, 138, 18),
+            (275, 90, 22), (278, 115, 20), (276, 138, 18),
+            (145, 78, 20), (172, 62, 22), (200, 56, 24), (228, 62, 22), (252, 75, 20),
+            (165, 82, 15), (195, 78, 16), (225, 82, 15)
+        ]
+        for cx, cy, cr in curls:
+            draw.ellipse([cx - cr, cy - cr, cx + cr, cy + cr], fill=curl_col, outline=curl_border, width=2)
+            draw.arc([cx - cr // 2, cy - cr // 2, cx + cr // 2, cy + cr // 2], start=30, end=240, fill=(48, 38, 42), width=2)
+
+    # 7. Yüz Hatları (Feride İmzası)
+    # İnce yay kaşlar
+    draw.arc([165, 86, 192, 102], start=200, end=340, fill=outline, width=3)
+    draw.arc([208, 86, 235, 102], start=200, end=340, fill=outline, width=3)
+
+    # Gözler (Canlı siyah noktalar + parıltı)
+    eye_y = 105
+    draw.ellipse([172, eye_y, 186, eye_y + 14], fill=(20, 20, 25))
+    draw.ellipse([214, eye_y, 228, eye_y + 14], fill=(20, 20, 25))
+    draw.ellipse([175, eye_y + 2, 179, eye_y + 6], fill=(255, 255, 255))
+    draw.ellipse([217, eye_y + 2, 221, eye_y + 6], fill=(255, 255, 255))
+
+    # Yanak allığı
+    draw.ellipse([152, 128, 172, 144], fill=(255, 195, 195))
+    draw.ellipse([228, 128, 248, 144], fill=(255, 195, 195))
+
+    # 8. İMZA UZUN KANCALI BURUN (Emir Sağlam)
+    draw.line([(199, 100), (204, 150)], fill=outline, width=3)
+    draw.arc([197, 142, 213, 158], start=270, end=90, fill=outline, width=3)
+
+    # Bıyık (Sadece promptta istenmişse)
+    if not is_female and has_mustache:
+        draw.chord([182, 155, 201, 172], start=0, end=180, fill=(45, 32, 25), outline=outline, width=2)
+        draw.chord([201, 155, 220, 172], start=0, end=180, fill=(45, 32, 25), outline=outline, width=2)
+
+    # 9. İMZA FERİDE AĞZI: Yana kıvrık pembe esprili ağız
+    draw.polygon([
+        (188, 176), (198, 172), (214, 175),
+        (216, 188), (204, 192), (188, 186)
+    ], fill=(235, 75, 95), outline=outline, width=3)
+    draw.line([(190, 178), (212, 178)], fill=outline, width=2)
 
     img.save(path, 'PNG')
 
@@ -323,6 +403,21 @@ def gpt_generate_script(topic: str, duration_min: int, style: str) -> list[dict]
 
 
 def _sample_script(topic: str) -> list[dict]:
+    t_lower = (topic or '').lower()
+    if 'barmen' in t_lower or 'bar' in t_lower or not topic or 'arda' in t_lower:
+        return [
+            {"speaker": "host",      "text": "Bayanlar baylar! Bu akşam tezgahın arkasından sahneye uzanan efsane barmenimiz Arda aramızda! Alkışlarınızla Arda sahnede!"},
+            {"speaker": "audience_clap", "text": ""},
+            {"speaker": "comedian",  "text": "Selam millet! Barda çalışınca insan psikolojisini çözüyorsunuz. Geçen bar taburesinde oturan bir abi geldi, 'Kardeşim bana öyle bir şey ver ki eski sevgilimi unuttursun' dedi. Ben de adisyona baktım, hesabı verdim. Anında unuttu!"},
+            {"speaker": "audience_laugh", "text": ""},
+            {"speaker": "comedian",  "text": "Bir de her masada bir kokteyl uzmanı var. Menüyü açıp 'Bunun içinde buz var mı?' diyor. Yahu mojito istedin, kutup ayısı mı bekliyordun?"},
+            {"speaker": "audience_laugh", "text": ""},
+            {"speaker": "comedian",  "text": "Gece ikide gelen müşteri var bir de. Tezgaha yaslanıp 'Barmen kardeşim, kadınları anlamak imkansız' diyor. Abi ben barmenim, filozof değilim! Ama bardağı doldururum, dinlerim!"},
+            {"speaker": "audience_laugh", "text": ""},
+            {"speaker": "comedian",  "text": "Gülmeye devam edin arkadaşlar, kadehleriniz hiç boş kalmasın! Şerefe!"},
+            {"speaker": "audience_clap", "text": ""},
+        ]
+
     lines = [
         {"speaker": "host",      "text": f"Merhaba sevgili seyirciler! Bu akşamki konumuz: {topic}. Hazır mısınız?"},
         {"speaker": "audience_clap", "text": ""},
@@ -334,24 +429,115 @@ def _sample_script(topic: str) -> list[dict]:
         {"speaker": "audience_laugh", "text": ""},
         {"speaker": "comedian",  "text": "Teknoloji de iyice sapıttı. Telefona 'OK Google, hayatımı düzelt' dedim. 'Üzgünüm, bu konuda yardımcı olamam' dedi. Yani telefon bile benden ümidini kesti!"},
         {"speaker": "audience_laugh", "text": ""},
-        {"speaker": "comedian",  "text": "Doktora gittim, 'Doktor bey, her sabah kalktığımda yorgun hissediyorum' dedim. 'Kaç saatte uyuyorsunuz?' dedi. '10 saat' dedim. 'Bu çok fazla' dedi. Yani uyumak da sağlıksız oldu mu? Ne yapacağız?"},
         {"speaker": "comedian",  "text": "Arkadaşlar, hayat zor ama gülmesek daha da zor olur. Teşekkür ederim, iyi geceler!"},
         {"speaker": "audience_clap", "text": ""},
     ]
     return lines
 
 
+def _ensure_piper_model(model_name: str = 'tr_TR-fahrettin-medium') -> tuple[str, str]:
+    """Türkçe nöral ses modelini hazır eder. Yoksa HuggingFace'ten indirir."""
+    os.makedirs(PIPER_DIR, exist_ok=True)
+
+    # 1. Öncelik: PIPER_DIR veya BASE_DIR/data_standup/piper_models içindeki dosyalar
+    for base in [PIPER_DIR, os.path.join(BASE_DIR, 'data_standup', 'piper_models')]:
+        o = os.path.join(base, f'{model_name}.onnx')
+        j = os.path.join(base, f'{model_name}.onnx.json')
+        if os.path.exists(o) and os.path.exists(j) and os.path.getsize(o) > 1000000:
+            return o, j
+
+    onnx_path = os.path.join(PIPER_DIR, f'{model_name}.onnx')
+    json_path = os.path.join(PIPER_DIR, f'{model_name}.onnx.json')
+
+    urls = {
+        'tr_TR-fahrettin-medium': {
+            'json': 'https://huggingface.co/rhasspy/piper-voices/raw/refs%2Fpr%2F25/tr/tr_TR/fahrettin/medium/tr_TR-fahrettin-medium.onnx.json',
+            'onnx': 'https://huggingface.co/rhasspy/piper-voices/resolve/refs%2Fpr%2F25/tr/tr_TR/fahrettin/medium/tr_TR-fahrettin-medium.onnx'
+        },
+        'tr_TR-fettah-medium': {
+            'json': 'https://huggingface.co/speaches-ai/piper-tr_TR-fettah-medium/resolve/main/config.json',
+            'onnx': 'https://huggingface.co/speaches-ai/piper-tr_TR-fettah-medium/resolve/main/model.onnx'
+        }
+    }
+    cfg = urls.get(model_name, urls['tr_TR-fahrettin-medium'])
+
+    if not os.path.exists(json_path) or os.path.getsize(json_path) == 0:
+        try:
+            r = requests.get(cfg['json'], timeout=30)
+            with open(json_path, 'wb') as f:
+                f.write(r.content)
+        except Exception as e:
+            print(f'Piper json indirme hata: {e}')
+
+    if not os.path.exists(onnx_path) or os.path.getsize(onnx_path) < 1000000:
+        try:
+            print(f'Piper {model_name} modeli indiriliyor (yaklaşık 60MB)...')
+            r = requests.get(cfg['onnx'], stream=True, timeout=120)
+            with open(onnx_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+            print('Model indirme tamamlandı!')
+        except Exception as e:
+            print(f'Piper onnx indirme hata: {e}')
+
+    return onnx_path, json_path
+
+
+def piper_text_to_speech(text: str, speaker: str = 'comedian') -> str | None:
+    """Piper TTS ile yapay olmayan, doğal insan tonunda Türkçe ses üretimi."""
+    if not text.strip():
+        return None
+    aid = str(uuid.uuid4())[:8]
+    out_wav = os.path.join(AUDIO_DIR, f'piper_{aid}.wav')
+    out_mp3 = os.path.join(AUDIO_DIR, f'{aid}.mp3')
+
+    # Sunucu için tok 'fettah', komedyen için doğal vurgulu 'fahrettin'
+    model_name = 'tr_TR-fettah-medium' if speaker == 'host' else 'tr_TR-fahrettin-medium'
+    onnx_path, json_path = _ensure_piper_model(model_name)
+
+    if not os.path.exists(onnx_path) or not os.path.exists(json_path):
+        return None
+
+    try:
+        cmd = ['piper', '-m', onnx_path, '-c', json_path, '-f', out_wav]
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
+        _, err = p.communicate(input=text, timeout=25)
+
+        if p.returncode == 0 and os.path.exists(out_wav) and os.path.getsize(out_wav) > 1000:
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            subprocess.run([
+                ffmpeg_exe, '-y', '-i', out_wav,
+                '-c:a', 'libmp3lame', '-b:a', '128k', out_mp3
+            ], capture_output=True, timeout=15)
+
+            try:
+                os.remove(out_wav)
+            except Exception:
+                pass
+
+            if os.path.exists(out_mp3) and os.path.getsize(out_mp3) > 0:
+                return out_mp3
+            return out_wav
+        else:
+            print(f'Piper hata: {err}')
+    except Exception as e:
+        print(f'Piper calistirma hata: {e}')
+
+    return None
+
+
 def text_to_speech(text: str, speaker: str, lang: str = 'tr') -> str | None:
-    """TTS -> Doğal erkek/kadın sesi veya OpenAI/ElevenLabs."""
+    """TTS -> 1. OpenAI (varsa), 2. ElevenLabs (varsa), 3. Piper Doğal İnsan Sesi (Ücretsiz/Yerel), 4. gTTS Fallback."""
     if not text.strip():
         return None
     aid = str(uuid.uuid4())[:8]
     out = os.path.join(AUDIO_DIR, f'{aid}.mp3')
 
-    # 1. Öncelik: OpenAI TTS (Varsa en doğal insansı ses)
+    # 1. Öncelik: OpenAI TTS (Varsa)
     if OPENAI_KEY:
         try:
-            # Komedyen için kalın doğal erkek sesi 'onyx' veya 'echo'
             voice = 'onyx' if speaker in ('comedian', 'host') else 'nova'
             headers = {'Authorization': f'Bearer {OPENAI_KEY}', 'Content-Type': 'application/json'}
             body = {'model': 'tts-1', 'input': text, 'voice': voice}
@@ -366,18 +552,16 @@ def text_to_speech(text: str, speaker: str, lang: str = 'tr') -> str | None:
     # 2. Öncelik: ElevenLabs (Varsa)
     if ELEVEN_KEY:
         voice_map = {
-            'comedian':  'pNInz6obpgDQGcFmaJgB',  # Adam (Erkek)
-            'comedian2': 'EXAVITQu4vr4xnSDxMaL',  # Bella (Kadın)
-            'host':      'VR6AewLTigWG4xSOukaG',  # Arnold (Erkek)
+            'comedian':  'pNInz6obpgDQGcFmaJgB',
+            'comedian2': 'EXAVITQu4vr4xnSDxMaL',
+            'host':      'VR6AewLTigWG4xSOukaG',
         }
         voice_id = voice_map.get(speaker, voice_map['comedian'])
         try:
             headers = {'xi-api-key': ELEVEN_KEY, 'Content-Type': 'application/json'}
             body = {'text': text, 'model_id': 'eleven_multilingual_v2',
                     'voice_settings': {'stability': 0.5, 'similarity_boost': 0.75}}
-            r = requests.post(
-                f'https://api.elevenlabs.io/v1/text-to-speech/{voice_id}',
-                headers=headers, json=body, timeout=30)
+            r = requests.post(f'https://api.elevenlabs.io/v1/text-to-speech/{voice_id}', headers=headers, json=body, timeout=30)
             if r.status_code == 200:
                 with open(out, 'wb') as f:
                     f.write(r.content)
@@ -385,54 +569,19 @@ def text_to_speech(text: str, speaker: str, lang: str = 'tr') -> str | None:
         except Exception as e:
             print(f'ElevenLabs hata: {e}')
 
-    # 3. Öncelik: gTTS + ffmpeg Akıllı Ses Tonlama (Tamamen ÜCRETSİZ, Erkek / Kadın ayrımı)
+    # 3. Öncelik: Piper Nöral Ses Motoru (Yapay Olmayan, Gerçek İnsan Ses Tonu ve Vurgusu - 100% Ücretsiz)
+    try:
+        p_audio = piper_text_to_speech(text, speaker)
+        if p_audio and os.path.exists(p_audio) and os.path.getsize(p_audio) > 1000:
+            return p_audio
+    except Exception as e:
+        print(f'Piper fallback hata: {e}')
+
+    # 4. Fallback: gTTS
     try:
         raw_out = os.path.join(AUDIO_DIR, f'raw_{aid}.mp3')
         tts = gTTS(text=text, lang=lang, slow=False)
         tts.save(raw_out)
-
-        import imageio_ffmpeg
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-
-        # Konuşmacıya göre ses filtresi belirle:
-        # Erkek Komedyen: Tok, derin ve doğal erkek sesi (rubberband pitch shift)
-        if speaker in ('comedian', 'comedian_male_deep', 'male'):
-            af_filter = 'rubberband=pitch=0.74,equalizer=f=125:width_type=h:width=80:g=6,equalizer=f=3500:width_type=h:width=1000:g=-4'
-        elif speaker in ('host', 'comedian_male'):
-            # Sunucu: Güçlü, tok radyo spikeri erkek sesi
-            af_filter = 'rubberband=pitch=0.76,equalizer=f=140:width_type=h:width=90:g=5,equalizer=f=3800:width_type=h:width=1000:g=-3'
-        elif speaker in ('comedian_young',):
-            # Genç erkek sesi
-            af_filter = 'rubberband=pitch=0.84,equalizer=f=180:width_type=h:width=100:g=3'
-        else:
-            # Kadın / Diğer
-            af_filter = 'equalizer=f=2500:width_type=h:width=500:g=2'
-
-        res = subprocess.run([
-            ffmpeg_exe, '-y', '-i', raw_out,
-            '-filter:a', af_filter,
-            out
-        ], capture_output=True, timeout=20)
-
-        # Eğer rubberband filtresi desteklenmezse garantili asetrate fallback
-        if not os.path.exists(out) or os.path.getsize(out) == 0:
-            pitch_rate = 0.76 if speaker in ('comedian', 'host', 'comedian_male_deep', 'male') else 1.0
-            tempo = round(1.0 / pitch_rate, 2)
-            fallback_af = f'asetrate=24000*{pitch_rate},aresample=24000,atempo={tempo}'
-            subprocess.run([
-                ffmpeg_exe, '-y', '-i', raw_out,
-                '-filter:a', fallback_af,
-                out
-            ], capture_output=True, timeout=20)
-
-        if os.path.exists(raw_out):
-            try:
-                os.remove(raw_out)
-            except Exception:
-                pass
-
-        if os.path.exists(out) and os.path.getsize(out) > 0:
-            return out
         return raw_out
     except Exception as e:
         print(f'gTTS hata: {e}')
@@ -480,55 +629,55 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
     spot = theme['spot']
 
     if theme_key == 'bar':
-        # 🍺 Bar & Pub Ortamı Çizimi
-        # Sıcak loş ahşap bar degradesi
-        for y in range(VIDEO_H):
-            ratio = y / VIDEO_H
-            r = int(32 - ratio * 18)
-            g = int(18 - ratio * 10)
-            b = int(14 - ratio * 8)
+        # 🍺 Otantik Ahşap Bar & Pub Atmosferi
+        # 1. Ahşap loş duvar degradesi
+        for y in range(VIDEO_H - 140):
+            ratio = y / (VIDEO_H - 140)
+            r = int(28 - ratio * 14)
+            g = int(16 - ratio * 8)
+            b = int(12 - ratio * 6)
             draw.line([(0, y), (VIDEO_W, y)], fill=(r, g, b))
 
-        # Ahşap içki rafları
-        draw.rectangle([(60, 160), (VIDEO_W - 60, 172)], fill=(65, 40, 25))
-        draw.rectangle([(60, 280), (VIDEO_W - 60, 292)], fill=(65, 40, 25))
+        # 2. Tavandan sarkan sıcak Edison bar lambaları
+        for lx in [200, 420, 860, 1080]:
+            draw.line([(lx, 0), (lx, 85)], fill=(75, 75, 80), width=2)
+            draw.polygon([(lx - 16, 85), (lx + 16, 85), (lx + 24, 105), (lx - 24, 105)], fill=(40, 40, 45))
+            draw.ellipse([lx - 12, 100, lx + 12, 125], fill=(255, 215, 120))
+            draw.ellipse([lx - 36, 90, lx + 36, 140], outline=(255, 190, 80), width=1)
 
-        # Raflardaki renkli içki şişeleri ve bardaklar
-        bottle_cols = [(190, 85, 25), (45, 155, 75), (170, 35, 45), (220, 165, 45), (85, 45, 115)]
-        for i, sx in enumerate(range(100, VIDEO_W - 100, 48)):
+        # 3. İki katlı ahşap içki rafları
+        draw.rectangle([(80, 150), (VIDEO_W - 80, 164)], fill=(60, 35, 20), outline=(90, 50, 30), width=2)
+        draw.rectangle([(80, 270), (VIDEO_W - 80, 284)], fill=(60, 35, 20), outline=(90, 50, 30), width=2)
+
+        # Raflardaki renkli şişeler ve tıpalar
+        bottle_cols = [
+            (210, 100, 35), (40, 165, 80), (180, 40, 50),
+            (230, 180, 50), (95, 45, 130), (220, 130, 40)
+        ]
+        for i, sx in enumerate(range(110, VIDEO_W - 110, 42)):
             c1 = bottle_cols[i % len(bottle_cols)]
-            bh1 = 50 + (i % 3) * 10
-            draw.rectangle([(sx, 160 - bh1), (sx + 18, 160)], fill=c1)
-            draw.rectangle([(sx + 5, 160 - bh1 - 10), (sx + 13, 160 - bh1)], fill=c1)
+            bh1 = 55 + (i % 3) * 12
+            draw.rectangle([(sx, 150 - bh1), (sx + 20, 150)], fill=c1, outline=(15, 10, 10), width=1)
+            draw.rectangle([(sx + 6, 150 - bh1 - 12), (sx + 14, 150 - bh1)], fill=c1)
+            draw.ellipse([(sx + 5, 150 - bh1 - 15), (sx + 15, 150 - bh1 - 10)], fill=(200, 180, 150))
 
             c2 = bottle_cols[(i + 2) % len(bottle_cols)]
-            bh2 = 45 + ((i * 2) % 3) * 12
-            draw.rectangle([(sx, 280 - bh2), (sx + 18, 280)], fill=c2)
-            draw.rectangle([(sx + 5, 280 - bh2 - 10), (sx + 13, 280 - bh2)], fill=c2)
+            bh2 = 50 + ((i * 2) % 3) * 14
+            draw.rectangle([(sx, 270 - bh2), (sx + 20, 270)], fill=c2, outline=(15, 10, 10), width=1)
+            draw.rectangle([(sx + 6, 270 - bh2 - 12), (sx + 14, 270 - bh2)], fill=c2)
 
-        # Parlayan Neon Tabela (Güvenli ortalama)
-        neon_txt = '★ STAND-UP COMEDY PUB & BAR ★'
-        fnt_neon = _font(26)
+        # 4. Parlayan Neon Bar Tabelası
+        neon_txt = 'STAND-UP COMEDY BAR'
+        fnt_neon = _font(22)
         try:
             nb = draw.textbbox((0, 0), neon_txt, font=fnt_neon)
             nw = nb[2] - nb[0]
+            nh = nb[3] - nb[1]
         except Exception:
-            nw = len(neon_txt) * 14
-        draw.text(((VIDEO_W - nw) // 2, 62), neon_txt,
-                  fill=(255, 70, 110), font=fnt_neon)
-
-        # Sıcak amber sahne spotu
-        cx, cy = VIDEO_W // 2, 0
-        for radius in range(400, 0, -8):
-            alpha = max(0, int(35 * (1 - radius / 400)))
-            draw.ellipse([cx - radius, cy - radius // 2, cx + radius, cy + radius // 2],
-                         fill=(min(255, spot[0] + alpha), min(255, spot[1] + alpha), spot[2]))
-
-        # Ahşap zemin
-        draw.polygon([(0, VIDEO_H - 140), (VIDEO_W, VIDEO_H - 140), (VIDEO_W, VIDEO_H), (0, VIDEO_H)],
-                     fill=(48, 28, 18))
-        for fy in range(VIDEO_H - 140, VIDEO_H, 22):
-            draw.line([(0, fy), (VIDEO_W, fy)], fill=(32, 18, 10), width=2)
+            nw, nh = len(neon_txt) * 12, 24
+        nx = (VIDEO_W - nw) // 2
+        draw.rounded_rectangle([nx - 18, 30, nx + nw + 18, 30 + nh + 16], radius=8, outline=(255, 65, 120), width=2)
+        draw.text((nx, 37), neon_txt, fill=(255, 130, 175), font=fnt_neon)
 
     elif theme_key == 'theatre':
         # 🎭 Kırmızı Kadife Perdeli Tiyatro
@@ -548,6 +697,7 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
 
         # Cilalı sahne
         draw.polygon([(0, VIDEO_H - 140), (VIDEO_W, VIDEO_H - 140), (VIDEO_W, VIDEO_H), (0, VIDEO_H)], fill=(60, 30, 20))
+        _draw_audience(draw)
 
     else:
         # 🎙️ Kulüp / Stüdyo / Diğer
@@ -564,8 +714,111 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
 
         draw.polygon([(0, VIDEO_H - 140), (VIDEO_W, VIDEO_H - 140), (VIDEO_W, VIDEO_H), (0, VIDEO_H)],
                      fill=(int(bg[0] * 1.5), int(bg[1] * 1.5), int(bg[2] * 1.5)))
+        _draw_audience(draw)
 
-    _draw_audience(draw)
+
+def _sbox(x1, y1, x2, y2):
+    return [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+
+
+def _draw_bar_counter_and_patrons(draw: ImageDraw.ImageDraw, is_cheering: bool = False, t_sec: float = 0.0):
+    """Barmenin önündeki cilalı ahşap bar tezgahını ve bar sandalyelerinde oturan müşterileri çizer."""
+    bar_top_y = VIDEO_H - 185
+    outline = (22, 18, 22)
+    skin = (255, 226, 202)
+
+    # 1. Cilalı Ahşap Bar Tezgahı (Barmenin önündedir)
+    draw.polygon([
+        (0, bar_top_y), (VIDEO_W, bar_top_y),
+        (VIDEO_W, bar_top_y + 40), (0, bar_top_y + 40)
+    ], fill=(95, 48, 25), outline=(135, 75, 40), width=3)
+    draw.rectangle([(0, bar_top_y + 40), (VIDEO_W, VIDEO_H)], fill=(45, 22, 12))
+
+    # 2. Altın/Krom Bira Musluğu & Kokteyl Shaker
+    tap_x = VIDEO_W // 2 + 160
+    draw.rectangle([(tap_x, bar_top_y - 65), (tap_x + 16, bar_top_y)], fill=(195, 195, 205), outline=(110, 110, 120), width=2)
+    draw.polygon([(tap_x - 8, bar_top_y - 65), (tap_x + 24, bar_top_y - 65), (tap_x + 18, bar_top_y - 48), (tap_x - 3, bar_top_y - 48)], fill=(220, 180, 50))
+    shk_x = VIDEO_W // 2 - 160
+    draw.polygon([(shk_x, bar_top_y - 45), (shk_x + 22, bar_top_y - 45), (shk_x + 18, bar_top_y), (shk_x + 4, bar_top_y)], fill=(185, 190, 200), outline=(110, 110, 120), width=2)
+
+    # 3. Bar Sandalyelerinde Oturan Müşteriler (Feride Karikatür Stili)
+    def _draw_patron(px, side='left', p_type=0):
+        stool_y = VIDEO_H - 150
+        # Bar Taburesi (Kırmızı deri minder + krom ayaklar + ayak dayama halkası)
+        draw.ellipse(_sbox(px - 28, stool_y, px + 28, stool_y + 14), fill=(160, 35, 45), outline=outline, width=2)
+        draw.line([(px, stool_y + 12), (px, VIDEO_H - 25)], fill=(180, 180, 190), width=4)
+        draw.line([(px - 18, stool_y + 35), (px - 25, VIDEO_H - 25)], fill=(120, 120, 130), width=3)
+        draw.line([(px + 18, stool_y + 35), (px + 25, VIDEO_H - 25)], fill=(120, 120, 130), width=3)
+        draw.ellipse(_sbox(px - 22, stool_y + 55, px + 22, stool_y + 67), outline=(190, 190, 200), width=3)
+
+        face_dir = 1 if side == 'left' else -1  # Barmen Arda'ya doğru bakar
+        cheer_lift = int(abs(math.sin(t_sec * 8 + px)) * 10) if is_cheering else 0
+        body_y = stool_y - 12 - cheer_lift
+
+        jacket_cols = [(52, 73, 94), (192, 57, 43), (39, 174, 96), (142, 68, 173)]
+        j_col = jacket_cols[p_type % len(jacket_cols)]
+
+        # Bacaklar (Ayak dayamaya basan)
+        draw.line([(px, body_y + 10), (px + face_dir * 14, stool_y + 58)], fill=(30, 35, 45), width=6)
+        draw.ellipse(_sbox(px + face_dir * 10, stool_y + 54, px + face_dir * 24, stool_y + 64), fill=(20, 20, 25))
+
+        # Gövde
+        draw.polygon([
+            (px - 22, body_y + 12), (px + 22, body_y + 12),
+            (px + face_dir * 18, body_y - 65), (px - face_dir * 14, body_y - 65)
+        ], fill=j_col, outline=outline, width=3)
+
+        # Kafa ve Boyun
+        head_cx = px + face_dir * 8
+        head_cy = body_y - 95
+        draw.rectangle(_sbox(head_cx - 5, body_y - 70, head_cx + 5, body_y - 60), fill=skin, outline=outline, width=2)
+        draw.ellipse(_sbox(head_cx - 18, head_cy - 22, head_cx + 18, head_cy + 18), fill=skin, outline=outline, width=3)
+
+        # Saç / Şapka
+        if p_type == 0:
+            draw.chord(_sbox(head_cx - 18, head_cy - 25, head_cx + 18, head_cy - 5), start=180, end=360, fill=(230, 190, 60), outline=outline, width=2)
+            draw.rectangle(_sbox(head_cx + face_dir * 2, head_cy - 6, head_cx + face_dir * 14, head_cy + 4), fill=(255, 255, 255), outline=outline, width=2)
+        elif p_type == 1:
+            draw.ellipse(_sbox(head_cx - 20, head_cy - 28, head_cx + 20, head_cy - 12), fill=(210, 45, 55), outline=outline, width=2)
+        elif p_type == 2:
+            draw.ellipse(_sbox(head_cx - face_dir * 14, head_cy - 30, head_cx - face_dir * 2, head_cy - 14), fill=(60, 40, 30), outline=outline, width=2)
+            draw.chord(_sbox(head_cx - 18, head_cy - 25, head_cx + 18, head_cy - 2), start=180, end=360, fill=(60, 40, 30), outline=outline, width=2)
+            draw.polygon([(head_cx - 10, body_y - 62), (head_cx + 10, body_y - 62), (head_cx, body_y - 48)], fill=(230, 60, 80))
+        else:
+            draw.chord(_sbox(head_cx - 18, head_cy - 25, head_cx + 18, head_cy - 5), start=180, end=360, fill=(50, 45, 45), outline=outline, width=2)
+            draw.ellipse(_sbox(head_cx + face_dir * 6, head_cy + 4, head_cx + face_dir * 16, head_cy + 10), fill=(30, 25, 25))
+
+        # Göz & Gülüş
+        draw.ellipse(_sbox(head_cx + face_dir * 8, head_cy - 4, head_cx + face_dir * 14, head_cy + 2), fill=(20, 20, 25))
+        if is_cheering:
+            draw.chord(_sbox(head_cx + face_dir * 6, head_cy + 8, head_cx + face_dir * 18, head_cy + 18), start=0, end=180, fill=(120, 20, 30), outline=outline, width=2)
+        else:
+            draw.arc(_sbox(head_cx + face_dir * 6, head_cy + 6, head_cx + face_dir * 16, head_cy + 14), start=0, end=180, fill=outline, width=2)
+
+        # Kadeh Kaldıran Kol
+        glass_lift = 38 if is_cheering else 0
+        hand_x = px + face_dir * 32
+        hand_y = body_y - 35 - glass_lift
+        draw.line([(px + face_dir * 8, body_y - 50), (hand_x, hand_y + 12)], fill=j_col, width=6)
+        draw.line([(px + face_dir * 8, body_y - 50), (hand_x, hand_y + 12)], fill=outline, width=2)
+        draw.ellipse(_sbox(hand_x - 4, hand_y + 8, hand_x + 8, hand_y + 18), fill=skin, outline=outline, width=2)
+
+        # Bira Bardağı veya Kokteyl Kadehi
+        if p_type % 2 == 0:
+            draw.rectangle(_sbox(hand_x + face_dir * 4, hand_y - 8, hand_x + face_dir * 4 + 16, hand_y + 16), fill=(240, 185, 45), outline=(255, 255, 255), width=2)
+            draw.ellipse(_sbox(hand_x + face_dir * 4 - 2, hand_y - 14, hand_x + face_dir * 4 + 18, hand_y - 4), fill=(255, 255, 255))
+        else:
+            bx1, bx2 = hand_x + face_dir * 4, hand_x + face_dir * 4 + 18
+            draw.polygon([
+                (bx1, hand_y - 12), (bx2, hand_y - 12),
+                ((bx1 + bx2) // 2, hand_y + 6)
+            ], fill=(235, 75, 120), outline=(255, 255, 255), width=2)
+            draw.line([((bx1 + bx2) // 2, hand_y + 6), ((bx1 + bx2) // 2, hand_y + 16)], fill=(255, 255, 255), width=2)
+
+    _draw_patron(110, side='left', p_type=0)
+    _draw_patron(230, side='left', p_type=1)
+    _draw_patron(VIDEO_W - 230, side='right', p_type=2)
+    _draw_patron(VIDEO_W - 110, side='right', p_type=3)
 
 
 def _draw_audience(draw: ImageDraw.ImageDraw):
@@ -660,15 +913,15 @@ def create_custom_photo_character(image_file, role: str = 'comedian', mode: str 
 _SPRITE_CACHE: dict = {}
 
 
-def _build_sprite(char_path: str, scale: float, mouth_open: bool, tilt_q: int) -> Image.Image:
-    """Karakter sprite'ını (boyutlandırılmış, ağız açık/kapalı, eğik) üretir ve önbelleğe alır."""
-    key = (char_path, scale, mouth_open, tilt_q)
+def _build_sprite(char_path: str, scale: float, mouth_state: int, blink: bool, tilt_q: int) -> Image.Image:
+    """Karakter sprite'ını (boyutlandırılmış, ağız modu, göz kırpma, eğik) üretir ve önbelleğe alır."""
+    key = (char_path, scale, mouth_state, blink, tilt_q)
     cached = _SPRITE_CACHE.get(key)
     if cached is not None:
         return cached
 
     if tilt_q != 0:
-        base = _build_sprite(char_path, scale, mouth_open, 0)
+        base = _build_sprite(char_path, scale, mouth_state, blink, 0)
         sprite = base.rotate(tilt_q, resample=Image.BICUBIC, expand=True)
         _SPRITE_CACHE[key] = sprite
         return sprite
@@ -677,38 +930,44 @@ def _build_sprite(char_path: str, scale: float, mouth_open: bool, tilt_q: int) -
     new_w = max(1, int(char.width * scale))
     new_h = max(1, int(char.height * scale))
     char = char.resize((new_w, new_h), Image.LANCZOS)
+    draw = ImageDraw.Draw(char)
 
-    if mouth_open:
-        # Gerçek ağız açılma animasyonu (Çene aşağı iner, ağız içi ve dişler görünür)
-        split_y = int(new_h * 0.38)
-        top = char.crop((0, 0, new_w, split_y))
-        bot = char.crop((0, split_y, new_w, new_h))
-        gap = 12
-        combined = Image.new('RGBA', (new_w, new_h + gap), (0, 0, 0, 0))
+    outline = (22, 18, 22)
+    skin = (255, 226, 202)
+    sx, sy = new_w / 400.0, new_h / 600.0
 
-        # Ağız boşluğu ve diş çizimi
-        c_draw = ImageDraw.Draw(combined)
-        mw = max(14, int(new_w * 0.18))
-        cx = new_w // 2
-        # Ağız içi (koyu kırmızı / bordo)
-        c_draw.ellipse([cx - mw, split_y - 2, cx + mw, split_y + gap + 3], fill=(55, 12, 18))
-        # Üst dişler (beyaz çizgi)
-        c_draw.rectangle([cx - int(mw * 0.7), split_y, cx + int(mw * 0.7), split_y + 3], fill=(250, 250, 250))
+    # 1. Göz kırpma animasyonu (blink)
+    if blink:
+        draw.ellipse([156 * sx, 95 * sy, 188 * sx, 122 * sy], fill=skin)
+        draw.ellipse([206 * sx, 95 * sy, 238 * sx, 122 * sy], fill=skin)
+        draw.arc([158 * sx, 98 * sy, 186 * sx, 120 * sy], start=200, end=340, fill=outline, width=max(2, int(3 * sx)))
+        draw.arc([208 * sx, 98 * sy, 236 * sx, 120 * sy], start=200, end=340, fill=outline, width=max(2, int(3 * sx)))
 
-        combined.paste(top, (0, 0), top)
-        combined.paste(bot, (0, split_y + gap), bot)
-        char = combined
+    # 2. Ağız durumu (mouth_state: 0 = tebessüm/dinleme, 1 = konuşma, 2 = kahkaha/coşku)
+    if mouth_state == 1:
+        draw.ellipse([180 * sx, 168 * sy, 222 * sx, 195 * sy], fill=skin)
+        mx1, my1, mx2, my2 = 184 * sx, 170 * sy, 218 * sx, 194 * sy
+        draw.ellipse([mx1, my1, mx2, my2], fill=(65, 15, 25), outline=outline, width=max(2, int(2.5 * sx)))
+        draw.chord([mx1 + 4 * sx, my1 + 1 * sy, mx2 - 4 * sx, my1 + 10 * sy], start=0, end=180, fill=(255, 255, 255))
+        draw.ellipse([mx1 + 7 * sx, my2 - 8 * sy, mx2 - 7 * sx, my2 - 1 * sy], fill=(235, 65, 85))
+
+    elif mouth_state == 2:
+        draw.ellipse([175 * sx, 165 * sy, 227 * sx, 202 * sy], fill=skin)
+        mx1, my1, mx2, my2 = 178 * sx, 168 * sy, 224 * sx, 200 * sy
+        draw.chord([mx1, my1, mx2, my2], start=0, end=180, fill=(60, 10, 20), outline=outline, width=max(2, int(2.5 * sx)))
+        draw.rectangle([mx1 + 6 * sx, my1, mx2 - 6 * sx, my1 + 6 * sy], fill=(255, 255, 255))
+        draw.chord([mx1 + 9 * sx, my2 - 12 * sy, mx2 - 9 * sx, my2], start=0, end=180, fill=(235, 65, 85))
 
     _SPRITE_CACHE[key] = char
     return char
 
 
 def _paste_character(frame: Image.Image, char_path: str,
-                     x: int, y: int, scale: float = 1.0, mouth_open: bool = False, bounce: int = 0, tilt: float = 0.0):
+                     x: int, y: int, scale: float = 1.0, mouth_state: int = 0, blink: bool = False, bounce: int = 0, tilt: float = 0.0):
     """Karakter PNG'yi frame'e yapıştırır, konuşurken ağzını açar ve sahnede canlı animasyon uygular."""
     try:
         tilt_q = int(round(tilt)) if abs(tilt) > 0.4 else 0
-        char = _build_sprite(char_path, scale, mouth_open, tilt_q)
+        char = _build_sprite(char_path, scale, mouth_state, blink, tilt_q)
         paste_x = x - char.width // 2
         paste_y = y - char.height - bounce
         frame.paste(char, (paste_x, paste_y), char)
@@ -718,6 +977,8 @@ def _paste_character(frame: Image.Image, char_path: str,
 
 def _draw_subtitle(draw: ImageDraw.ImageDraw, text: str, speaker_name: str):
     """Altyazı bandı çiz (Pillow anchor hatası vermeyen güvenli çizim)."""
+    text = _clean_no_emoji(text)
+    speaker_name = _clean_no_emoji(speaker_name) or "Konuşmacı"
     if not text.strip():
         return
     fnt_big = _font(26)
@@ -811,11 +1072,33 @@ def _generate_video_worker(job_id: str, project: dict):
             if os.path.exists(p):
                 char_paths[role] = p
 
-        CHAR_POS = {
-            'comedian':  (VIDEO_W // 2, VIDEO_H - 155),
-            'comedian2': (VIDEO_W // 3, VIDEO_H - 155),
-            'host':      (VIDEO_W // 4, VIDEO_H - 155),
-        }
+        # 🌟 Otomatik Barmen Arda Garantisi (Kullanıcı karakter seçmese bile sahne ASLA boş kalmaz!)
+        default_arda_path = os.path.join(CHAR_DIR, 'arda_default.png')
+        if not os.path.exists(default_arda_path):
+            _draw_local_character(default_arda_path, 'comedian', '#2c3e50', 'arda kıvırcık saçlı barmen')
+            _copy_to_static('arda_default')
+
+        if not char_paths:
+            char_paths['comedian'] = default_arda_path
+
+        # Eğer senaryoda geçen komedyen rolleri atanmamışsa Arda'ya bağla
+        for line in lines:
+            spk = line.get('speaker')
+            if spk in ('comedian', 'comedian2') and spk not in char_paths:
+                char_paths[spk] = char_paths.get('comedian', default_arda_path)
+
+        bar_top_y = VIDEO_H - 185
+        if theme_key == 'bar':
+            CHAR_POS = {
+                'comedian':  (VIDEO_W // 2, bar_top_y + 115),
+                'comedian2': (VIDEO_W // 2, bar_top_y + 115),
+            }
+        else:
+            CHAR_POS = {
+                'comedian':  (VIDEO_W // 2, VIDEO_H - 155),
+                'comedian2': (VIDEO_W // 3, VIDEO_H - 155),
+                'host':      (VIDEO_W // 4, VIDEO_H - 155),
+            }
 
         video_id = str(uuid.uuid4())[:8]
         raw_video_path = os.path.join(OUTPUT_DIR, f'raw_{video_id}.mp4')
@@ -823,13 +1106,13 @@ def _generate_video_worker(job_id: str, project: dict):
 
         total = len(lines)
         speaker_names = {
-            'comedian': '🎤 Komedyen', 'comedian2': '🎤 Komedyen 2',
-            'host': '🎙️ Sunucu', 'audience_laugh': '😂 Kahkaha',
-            'audience_clap': '👏 Alkış'
+            'comedian': 'Arda (Barmen)', 'comedian2': 'Arda (Barmen)',
+            'host': 'Sunucu', 'audience_laugh': 'Kahkaha',
+            'audience_clap': 'Alkış'
         }
 
         # ── AŞAMA 1: Tüm seslendirmeleri üret (%0 → %30) ─────────────────
-        JOB_STORE[job_id]['stage'] = 'Seslendirmeler hazırlanıyor'
+        JOB_STORE[job_id]['stage'] = 'Doğal insan seslendirmeleri hazırlanıyor'
         line_audio = []   # [(audio_path|None, n_frames)]
         for idx, line in enumerate(lines):
             audio_path, duration = resolve_line_audio(line, lang, voice_settings)
@@ -840,8 +1123,7 @@ def _generate_video_worker(job_id: str, project: dict):
         total_frames = max(1, sum(n for _, n in line_audio))
 
         # ── AŞAMA 2: Kareleri çiz (%30 → %85) ─────────────────────────────
-        JOB_STORE[job_id]['stage'] = 'Animasyon kareleri çiziliyor'
-        # Arka plan yalnızca BİR kez çizilir, her karede kopyalanır
+        JOB_STORE[job_id]['stage'] = 'Bar ve karikatür animasyon kareleri çiziliyor'
         stage_bg = Image.new('RGB', (VIDEO_W, VIDEO_H), (0, 0, 0))
         _draw_stage_bg(stage_bg, theme_key, custom_bg_path=custom_bg_path)
 
@@ -856,27 +1138,47 @@ def _generate_video_worker(job_id: str, project: dict):
             speaker = line.get('speaker', 'comedian')
             text    = line.get('text', '')
             n_frames = line_audio[idx][1]
-
-            # Bu satır için arka plan + altyazı tabanı (bir kez)
-            line_base = stage_bg.copy()
-            sub_txt = text if speaker not in ('audience_laugh', 'audience_clap') else ('😂😂😂' if speaker == 'audience_laugh' else '👏👏👏')
-            _draw_subtitle(ImageDraw.Draw(line_base), sub_txt, speaker_names.get(speaker, speaker))
+            is_cheer = speaker in ('audience_laugh', 'audience_clap')
 
             for f_idx in range(n_frames):
-                frame = line_base.copy()
+                frame = stage_bg.copy()
                 t_sec = f_idx / FPS
 
+                # 1. Barmen / Komedyen Karakterleri (Tezgah arkasında)
                 for role, pos in CHAR_POS.items():
                     cp = char_paths.get(role)
                     if not cp:
                         continue
                     is_speaking = (role == speaker)
-                    scale = 0.55 if is_speaking else 0.40
-                    # Saniyede ~8 ağız hareketi (FPS'ten bağımsız)
-                    mouth_open = is_speaking and (int(t_sec * 8) % 2 == 1)
-                    bounce = int(abs(math.sin(t_sec * 13)) * 6) if is_speaking else int(math.sin(t_sec * 3) * 2)
-                    tilt = math.sin(t_sec * 8.4) * 3.0 if is_speaking else 0.0
-                    _paste_character(frame, cp, pos[0], pos[1], scale, mouth_open=mouth_open, bounce=bounce, tilt=tilt)
+                    scale = 0.58 if role == 'comedian' else 0.50
+
+                    # Doğal göz kırpma (Her ~3.3 saniyede 0.16 sn sevimli göz kırpma)
+                    blink = ((t_sec % 3.3) < 0.16)
+
+                    # Ağız durumu (0 = tebessüm, 1 = konuşma, 2 = kahkaha/coşku)
+                    if is_speaking:
+                        mouth_state = 1 if (int(t_sec * 8) % 2 == 1) else 0
+                    elif is_cheer and role == 'comedian':
+                        mouth_state = 2
+                    else:
+                        mouth_state = 0
+
+                    bounce = int(abs(math.sin(t_sec * 10)) * 4) if is_speaking else int(math.sin(t_sec * 2.5) * 2)
+                    tilt = math.sin(t_sec * 7.5) * 2.4 if is_speaking else 0.0
+
+                    _paste_character(frame, cp, pos[0], pos[1], scale,
+                                     mouth_state=mouth_state, blink=blink, bounce=bounce, tilt=tilt)
+
+                # 2. Bar Tezgahı ve Kadeh Kaldıran Müşteriler Katmanı (Barmenin önündedir!)
+                if theme_key == 'bar':
+                    _draw_bar_counter_and_patrons(ImageDraw.Draw(frame), is_cheering=is_cheer, t_sec=t_sec)
+
+                # 3. Altyazı Bandı
+                if is_cheer:
+                    sub_txt = '🍻 (Müşteriler Kadeh Kaldırıyor!)' if speaker == 'audience_laugh' else '👏 (Müşteriler Alkışlıyor!)'
+                else:
+                    sub_txt = text
+                _draw_subtitle(ImageDraw.Draw(frame), sub_txt, speaker_names.get(speaker, speaker))
 
                 writer.append_data(np.asarray(frame))
                 frames_done += 1

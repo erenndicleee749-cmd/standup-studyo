@@ -151,6 +151,17 @@
 {% block extra_js %}
 <script>
 const proj = JSON.parse(localStorage.getItem('su_project') || '{}');
+if (!proj.characters || Object.keys(proj.characters).length === 0) {
+  const localChars = JSON.parse(localStorage.getItem('su_characters') || '{}');
+  if (Object.keys(localChars).length > 0) {
+    proj.characters = Object.fromEntries(Object.entries(localChars).map(([r, c]) => [r, c.cid]));
+  } else {
+    proj.characters = { comedian: 'arda_default' };
+  }
+}
+if (!proj.theme) {
+  proj.theme = 'bar';
+}
 let pollTimer = null;
 let currentJobId = null;
 
