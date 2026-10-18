@@ -55,6 +55,17 @@ for d in [CHAR_DIR, OUTPUT_DIR, AUDIO_DIR, VENUE_DIR, PIPER_DIR,
           os.path.join(BASE_DIR, 'static_standup', 'fonts')]:
     os.makedirs(d, exist_ok=True)
 
+# Başlangıçta statik karakterleri CHAR_DIR'e eşitle (Render'da dosya kaybını önle)
+import shutil
+for c_fname in ['arda_default.png', 'arda_caricature.png', 'arda_photoreal.png']:
+    s_src = os.path.join(STATIC_CHAR_DIR, c_fname)
+    c_dst = os.path.join(CHAR_DIR, c_fname)
+    if os.path.exists(s_src):
+        try:
+            shutil.copy2(s_src, c_dst)
+        except Exception:
+            pass
+
 VIDEO_W, VIDEO_H = 1280, 720
 FPS = 15  # Render ücretsiz planın zayıf CPU'su için optimize (çizgi animasyon için yeterince akıcı)
 
@@ -204,6 +215,11 @@ def _draw_local_character(path: str, role: str = 'comedian', body_color: str = '
     has_red_beret = ('kırmızı bere' in p_lower or 'kirmizi bere' in p_lower or 'bere' in p_lower)
     has_mustache  = ('bıyık' in p_lower or 'biyik' in p_lower or 'bıyıklı' in p_lower)
     is_female     = ('kadın' in p_lower or 'kadin' in p_lower or 'feride' in p_lower or 'kız' in p_lower)
+
+    arda_source = os.path.join(STATIC_CHAR_DIR, 'arda_default.png')
+    if not is_female and os.path.exists(arda_source):
+        shutil.copy2(arda_source, path)
+        return
 
     outline = (22, 18, 22)
     skin = (255, 226, 202)
@@ -608,11 +624,30 @@ def text_to_speech(text: str, speaker: str, lang: str = 'tr') -> str | None:
     except Exception as e:
         print(f'Piper fallback hata: {e}')
 
-    # 4. Fallback: gTTS
+    # 4. Fallback: gTTS (Erkek rolleri için FFMPEG doğal bariton erkek sesi dönüşümü)
     try:
         raw_out = os.path.join(AUDIO_DIR, f'raw_{aid}.mp3')
         tts = gTTS(text=text, lang=lang, slow=False)
         tts.save(raw_out)
+
+        is_female_role = str(speaker or '').lower() in ('kadin', 'female', 'dfki', 'feride')
+        if not is_female_role:
+            male_mp3 = os.path.join(AUDIO_DIR, f'male_{aid}.mp3')
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            cmd = [
+                ffmpeg_exe, '-y', '-i', raw_out,
+                '-af', 'asetrate=24000*0.82,atempo=1.22,bass=g=4:f=160',
+                '-c:a', 'libmp3lame', '-b:a', '128k', male_mp3
+            ]
+            subprocess.run(cmd, capture_output=True, timeout=15)
+            if os.path.exists(male_mp3) and os.path.getsize(male_mp3) > 1000:
+                try:
+                    os.remove(raw_out)
+                except Exception:
+                    pass
+                return male_mp3
+
         return raw_out
     except Exception as e:
         print(f'gTTS hata: {e}')
@@ -1196,18 +1231,30 @@ def _generate_video_worker(job_id: str, project: dict):
 
         char_paths = {}
         for role, cid in characters.items():
-            p = os.path.join(CHAR_DIR, f'{cid}.png')
-            if os.path.exists(p):
-                char_paths[role] = p
+            for d in [CHAR_DIR, STATIC_CHAR_DIR]:
+                p = os.path.join(d, f'{cid}.png')
+                if os.path.exists(p):
+                    char_paths[role] = p
+                    break
 
         # 🌟 Otomatik Barmen Arda Garantisi (Kullanıcı karakter seçmese bile sahne ASLA boş kalmaz!)
-        default_arda_path = os.path.join(CHAR_DIR, 'arda_default.png')
+        default_arda_path = os.path.join(STATIC_CHAR_DIR, 'arda_default.png')
         if not os.path.exists(default_arda_path):
-            _draw_local_character(default_arda_path, 'comedian', '#2c3e50', 'arda kıvırcık saçlı barmen')
-            _copy_to_static('arda_default')
+            default_arda_path = os.path.join(CHAR_DIR, 'arda_default.png')
 
-        if not char_paths:
+        # Bar temasında veya varsayılan barmende daima vintage karikatür Arda kullanılır
+        if theme_key in ('bar', 'bar_photo', 'club') or 'comedian' not in char_paths:
             char_paths['comedian'] = default_arda_path
+
+        # Eski 400x600 vektör çöp adam kalıntısını otomatik engelle ve Arda ile değiştir
+        for role in list(char_paths.keys()):
+            if os.path.exists(char_paths[role]):
+                try:
+                    c_img = Image.open(char_paths[role])
+                    if c_img.size == (400, 600):
+                        char_paths[role] = default_arda_path
+                except Exception:
+                    pass
 
         # Eğer senaryoda geçen komedyen rolleri atanmamışsa Arda'ya bağla
         for line in lines:
