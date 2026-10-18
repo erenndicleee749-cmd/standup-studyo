@@ -1076,20 +1076,38 @@ def _build_sprite(char_path: str, scale: float, mouth_state: int, blink: bool, t
         _SPRITE_CACHE[key] = sprite
         return sprite
 
-    char_raw = Image.open(char_path).convert('RGBA')
+    active_char_path = char_path
+    if mouth_state in (1, 2):
+        # Arda veya açık ağızlı konuşma varyantı kontrolü
+        dir_name = os.path.dirname(char_path)
+        base_name = os.path.basename(char_path)
+        name_no_ext, ext = os.path.splitext(base_name)
+        if 'arda' in name_no_ext:
+            cand_open = os.path.join(dir_name, 'arda_mouth_open' + ext)
+            if not os.path.exists(cand_open):
+                cand_open = os.path.join(STATIC_CHAR_DIR, 'arda_mouth_open.png')
+            if not os.path.exists(cand_open):
+                cand_open = os.path.join(CHAR_DIR, 'arda_mouth_open.png')
+            if os.path.exists(cand_open):
+                active_char_path = cand_open
+        else:
+            cand_open = os.path.join(dir_name, f'{name_no_ext}_mouth_open{ext}')
+            if os.path.exists(cand_open):
+                active_char_path = cand_open
+
+    char_raw = Image.open(active_char_path).convert('RGBA')
     is_vector_sprite = (char_raw.width == 400 and char_raw.height == 600)
 
     new_w = max(1, int(char_raw.width * scale))
     new_h = max(1, int(char_raw.height * scale))
 
-    # Fotogerçekçi karakterler için pürüzsüz konuşma ve nefes alma animasyonu
+    # Fotogerçekçi / 3D Karikatür karakterler (Arda vb.)
     if not is_vector_sprite:
         if mouth_state == 1:
-            # Konuşma anında hafif doğal çene/gövde hareketi
-            new_h = int(new_h * 1.015)
+            new_h = int(new_h * 1.012)
         elif mouth_state == 2:
-            new_w = int(new_w * 1.02)
-            new_h = int(new_h * 1.02)
+            new_w = int(new_w * 1.018)
+            new_h = int(new_h * 1.018)
         char = char_raw.resize((new_w, new_h), Image.LANCZOS)
         _SPRITE_CACHE[key] = char
         return char
@@ -1320,7 +1338,7 @@ def _generate_video_worker(job_id: str, project: dict):
                 frame = stage_bg.copy()
                 t_sec = f_idx / FPS
 
-                # 1. Barmen / Komedyen Karakterleri (Tezgah arkasında)
+                # 1. Barmen / Komedyen Karakterleri (Tezgah arkasında canlı hareket)
                 for role, pos in CHAR_POS.items():
                     cp = char_paths.get(role)
                     if not cp:
@@ -1331,18 +1349,27 @@ def _generate_video_worker(job_id: str, project: dict):
                     # Doğal göz kırpma (Her ~3.3 saniyede 0.16 sn sevimli göz kırpma)
                     blink = ((t_sec % 3.3) < 0.16)
 
-                    # Ağız durumu (0 = tebessüm, 1 = konuşma, 2 = kahkaha/coşku)
+                    # Ağız durumu (0 = tebessüm/kapalı, 1 = konuşma/açık, 2 = kahkaha/coşku)
                     if is_speaking:
-                        mouth_state = 1 if (int(t_sec * 8) % 2 == 1) else 0
+                        mouth_state = 1 if (int(t_sec * 7.0) % 2 == 1) else 0
                     elif is_cheer and role == 'comedian':
                         mouth_state = 2
                     else:
                         mouth_state = 0
 
-                    bounce = int(abs(math.sin(t_sec * 6)) * 3) if is_speaking else int(math.sin(t_sec * 2.0) * 1.5)
-                    tilt = math.sin(t_sec * 4.0) * 1.2 if is_speaking else 0.0
+                    # 🌟 Bar içinde canlı barmen hareketi (Sway, adım, hafif eğilme & konuşma bouncı)
+                    if theme_key in ('bar', 'bar_photo', 'bar_cartoon', 'club') or role in ('comedian', 'comedian2'):
+                        sway_x = int(math.sin(t_sec * 1.4) * 22 + math.sin(t_sec * 0.6) * 10)
+                        lean_x = int(math.sin(t_sec * 3.2) * 8) if is_speaking else 0
+                        char_x = pos[0] + sway_x + lean_x
+                        bounce = int(abs(math.sin(t_sec * 6.5)) * 7) if is_speaking else int(math.sin(t_sec * 2.2) * 3)
+                        tilt = (math.sin(t_sec * 3.4) * 2.8) if is_speaking else (math.sin(t_sec * 1.1) * 0.8)
+                    else:
+                        char_x = pos[0]
+                        bounce = int(abs(math.sin(t_sec * 6)) * 4) if is_speaking else int(math.sin(t_sec * 2.0) * 1.5)
+                        tilt = math.sin(t_sec * 3.0) * 1.5 if is_speaking else 0.0
 
-                    _paste_character(frame, cp, pos[0], pos[1], scale,
+                    _paste_character(frame, cp, char_x, pos[1], scale,
                                      mouth_state=mouth_state, blink=blink, bounce=bounce, tilt=tilt)
 
                 # 2. Karikatür Bar Tezgahı ve Müşteriler Katmanı (Sadece bar_vector_old modunda çizilir)
@@ -1374,9 +1401,9 @@ def _generate_video_worker(job_id: str, project: dict):
                 seg_dur = f'{n_frames / FPS:.3f}'
                 seg_wav = os.path.join(OUTPUT_DIR, f'norm_{video_id}_{s_idx}.wav')
                 if a_path and os.path.exists(a_path):
-                    # Satır sesini tam olarak kare süresine sabitle (kayma olmaz)
+                    # Satır sesini tam olarak kare süresine sabitle ve sesi güçlendir (+6dB ses yüksekliği)
                     cmd = [ffmpeg_exe, '-y', '-i', a_path,
-                           '-af', 'apad', '-t', seg_dur,
+                           '-af', 'apad,volume=2.2', '-t', seg_dur,
                            '-ar', '44100', '-ac', '2', seg_wav]
                 else:
                     # Ses yoksa aynı uzunlukta sessizlik
@@ -1405,7 +1432,7 @@ def _generate_video_worker(job_id: str, project: dict):
                         ffmpeg_exe, '-y',
                         '-i', raw_video_path,
                         '-i', merged_audio,
-                        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+                        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
                         '-movflags', '+faststart',
                         '-shortest', final_path
                     ], capture_output=True, timeout=180)

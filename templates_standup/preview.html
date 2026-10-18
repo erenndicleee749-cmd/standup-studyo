@@ -147,8 +147,21 @@
         <span style="font-size:0.8rem; color:var(--text-dim, #888);">Tarayıcıda izle</span>
       </div>
 
-      <div class="video-player-wrap" style="position:relative; background:#000; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.1); margin-bottom: 20px;">
+      <div class="video-player-wrap" style="position:relative; background:#000; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.1); margin-bottom: 12px;">
         <video id="result-video" controls playsinline style="width:100%; border-radius:12px; max-height:420px; display:block;"></video>
+      </div>
+
+      <!-- 🔊 Ses Kontrol ve Güvence Rozeti -->
+      <div style="background: rgba(46, 204, 113, 0.12); border: 1px solid rgba(46, 204, 113, 0.4); border-radius: 10px; padding: 10px 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size: 1.2rem;">🔊</span>
+          <span style="color:#2ecc71; font-size:0.9rem; font-weight:600;">
+            Video Sesi: <strong>%100 Açık & HD Doğal Erkek Stand-Up Sesi</strong>
+          </span>
+        </div>
+        <button type="button" class="btn-ghost" style="padding:6px 14px; font-size:0.85rem; border-color:#2ecc71; color:#2ecc71; font-weight:600;" onclick="playWithFullSound()">
+          ▶️ Sesi Açarak Başlat
+        </button>
       </div>
 
       <div class="download-actions" style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
@@ -313,6 +326,9 @@ function showDone(fname) {
   document.getElementById('btn-download').href       = downloadUrl;
 
   const vid = document.getElementById('result-video');
+  vid.muted = false;
+  vid.volume = 1.0;
+  vid.defaultMuted = false;
   try { vid.load(); } catch(e) {}
 
   setTimeout(() => {
@@ -320,6 +336,15 @@ function showDone(fname) {
   }, 120);
 
   showToast('Video hazır! MP4 indirme butonu aktif 📥🎉', 'success');
+}
+
+function playWithFullSound() {
+  const vid = document.getElementById('result-video');
+  if (vid) {
+    vid.muted = false;
+    vid.volume = 1.0;
+    vid.play().catch(() => {});
+  }
 }
 
 function showError(msg) {
