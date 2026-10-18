@@ -60,11 +60,12 @@ FPS = 15  # Render ücretsiz planın zayıf CPU'su için optimize (çizgi animas
 
 # ── Renk paleti ve mekan temaları ───────────────────────────────────────────
 STAGE_THEMES = {
-    'bar':     {'bg': (24, 14, 10),    'spot': (255, 190, 60),  'name': '🍺 Bar & Pub Ortamı'},
-    'club':    {'bg': (15, 10, 30),    'spot': (255, 220, 80),  'name': '🎙️ Tuğla Duvarlı Kulüp'},
-    'theatre': {'bg': (35, 12, 18),    'spot': (255, 180, 60),  'name': '🎭 Kırmızı Perdeli Tiyatro'},
-    'street':  {'bg': (18, 25, 35),    'spot': (200, 240, 255), 'name': '🌆 Açık Hava / Sokak'},
-    'studio':  {'bg': (10, 10, 40),    'spot': (150, 180, 255), 'name': '🎬 Modern Talk-Show Stüdyosu'},
+    'bar':       {'bg': (24, 14, 10),    'spot': (255, 190, 60),  'name': '🍺 Otantik Bar & Pub Ortamı'},
+    'bar_photo': {'bg': (24, 14, 10),    'spot': (255, 190, 60),  'name': '📸 Gerçek Bar Fotoğrafı'},
+    'club':      {'bg': (20, 12, 18),    'spot': (255, 210, 80),  'name': '🎙️ Komedi Kulübü & Bar'},
+    'theatre':   {'bg': (35, 12, 18),    'spot': (255, 180, 60),  'name': '🎭 Kırmızı Perdeli Tiyatro'},
+    'street':    {'bg': (18, 25, 35),    'spot': (200, 240, 255), 'name': '🌆 Açık Hava / Sokak'},
+    'studio':    {'bg': (10, 10, 40),    'spot': (150, 180, 255), 'name': '🎬 Modern Talk-Show Stüdyosu'},
 }
 
 JOB_STORE: dict[str, dict] = {}  # job_id -> {status, progress, result}
@@ -628,8 +629,21 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
     bg = theme['bg']
     spot = theme['spot']
 
-    if theme_key == 'bar':
-        # 🍺 Otantik Ahşap Bar & Pub Atmosferi
+    # 1. Gerçek Bar Fotoğrafı teması
+    if theme_key == 'bar_photo':
+        photo_path = custom_bg_path or os.path.join(STATIC_DIR, 'venues', 'real_bar.png')
+        if not os.path.exists(photo_path):
+            photo_path = os.path.join(DATA_DIR, 'venues', 'real_bar.png')
+        if os.path.exists(photo_path):
+            try:
+                bg_img = Image.open(photo_path).convert('RGB').resize((VIDEO_W, VIDEO_H), Image.LANCZOS)
+                frame.paste(bg_img, (0, 0))
+                return
+            except Exception as e:
+                print(f'Bar fotoğrafı yükleme hatası: {e}')
+
+    if theme_key in ('bar', 'club'):
+        # 🍺 Otantik Ahşap Bar & Pub Atmosferi (Kullanıcı Referansına Uygun)
         # 1. Ahşap loş duvar degradesi
         for y in range(VIDEO_H - 140):
             ratio = y / (VIDEO_H - 140)
@@ -638,36 +652,65 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
             b = int(12 - ratio * 6)
             draw.line([(0, y), (VIDEO_W, y)], fill=(r, g, b))
 
-        # 2. Tavandan sarkan sıcak Edison bar lambaları
-        for lx in [200, 420, 860, 1080]:
-            draw.line([(lx, 0), (lx, 85)], fill=(75, 75, 80), width=2)
-            draw.polygon([(lx - 16, 85), (lx + 16, 85), (lx + 24, 105), (lx - 24, 105)], fill=(40, 40, 45))
-            draw.ellipse([lx - 12, 100, lx + 12, 125], fill=(255, 215, 120))
-            draw.ellipse([lx - 36, 90, lx + 36, 140], outline=(255, 190, 80), width=1)
+        # 2. ÜST TAVAN KADEH ASKILIĞI & TERS ASILI AYAKLI BARDAKLAR (Otantik Bar Askılığı)
+        # Ahşap tavan kirişi / asma gantry
+        draw.rectangle([(0, 0), (VIDEO_W, 45)], fill=(32, 18, 12), outline=(55, 30, 20), width=2)
+        draw.line([(0, 45), (VIDEO_W, 45)], fill=(80, 45, 25), width=3)
+        draw.line([(0, 52), (VIDEO_W, 52)], fill=(90, 85, 80), width=2)
 
-        # 3. İki katlı ahşap içki rafları
-        draw.rectangle([(80, 150), (VIDEO_W - 80, 164)], fill=(60, 35, 20), outline=(90, 50, 30), width=2)
-        draw.rectangle([(80, 270), (VIDEO_W - 80, 284)], fill=(60, 35, 20), outline=(90, 50, 30), width=2)
+        # Tavandan sarkan sıcak gömme tavan spotları
+        spot_xs = [160, 360, 560, 760, 960, 1120]
+        for sx in spot_xs:
+            draw.ellipse([sx - 18, 38, sx + 18, 52], fill=(240, 210, 130), outline=(70, 40, 25), width=2)
+            for r_step in range(1, 4):
+                draw.polygon([
+                    (sx - 10 - r_step * 3, 52),
+                    (sx + 10 + r_step * 3, 52),
+                    (sx + 35 + r_step * 12, 220),
+                    (sx - 35 - r_step * 12, 220)
+                ], outline=(255, 220 - r_step * 25, 90) if r_step == 1 else None)
 
-        # Raflardaki renkli şişeler ve tıpalar
+        # Ters asılı ayaklı şarap ve kokteyl kadehleri
+        for gx in range(60, VIDEO_W - 60, 32):
+            draw.line([(gx - 8, 52), (gx + 8, 52)], fill=(210, 215, 225), width=2)
+            stem_len = 38 + (gx % 3) * 6
+            draw.line([(gx, 52), (gx, 52 + stem_len)], fill=(190, 205, 220), width=2)
+            cy = 52 + stem_len
+            bowl_w, bowl_h = 12, 24
+            draw.polygon([
+                (gx, cy),
+                (gx - bowl_w, cy + bowl_h),
+                (gx + bowl_w, cy + bowl_h)
+            ], fill=(180, 210, 235), outline=(225, 235, 245), width=1)
+            draw.ellipse([gx - bowl_w, cy + bowl_h - 2, gx + bowl_w, cy + bowl_h + 3], fill=(220, 235, 250), outline=(255, 255, 255), width=1)
+            draw.line([(gx - 3, cy + 8), (gx - 3, cy + bowl_h - 4)], fill=(255, 245, 200), width=1)
+
+        # 3. İKİ KATLI AHŞAP İÇKİ RAFLARI & ŞİŞELER
+        draw.rectangle([(60, 165), (VIDEO_W - 60, 180)], fill=(65, 38, 22), outline=(100, 58, 35), width=2)
+        draw.rectangle([(60, 285), (VIDEO_W - 60, 300)], fill=(65, 38, 22), outline=(100, 58, 35), width=2)
+
         bottle_cols = [
             (210, 100, 35), (40, 165, 80), (180, 40, 50),
-            (230, 180, 50), (95, 45, 130), (220, 130, 40)
+            (230, 180, 50), (95, 45, 130), (220, 130, 40),
+            (240, 200, 80), (160, 30, 30), (50, 130, 180)
         ]
-        for i, sx in enumerate(range(110, VIDEO_W - 110, 42)):
+        for i, sx in enumerate(range(85, VIDEO_W - 85, 38)):
             c1 = bottle_cols[i % len(bottle_cols)]
-            bh1 = 55 + (i % 3) * 12
-            draw.rectangle([(sx, 150 - bh1), (sx + 20, 150)], fill=c1, outline=(15, 10, 10), width=1)
-            draw.rectangle([(sx + 6, 150 - bh1 - 12), (sx + 14, 150 - bh1)], fill=c1)
-            draw.ellipse([(sx + 5, 150 - bh1 - 15), (sx + 15, 150 - bh1 - 10)], fill=(200, 180, 150))
+            bh1 = 58 + (i % 3) * 10
+            draw.rectangle([(sx, 165 - bh1), (sx + 18, 165)], fill=c1, outline=(20, 12, 10), width=1)
+            draw.rectangle([(sx + 5, 165 - bh1 - 12), (sx + 13, 165 - bh1)], fill=c1)
+            draw.ellipse([(sx + 4, 165 - bh1 - 15), (sx + 14, 165 - bh1 - 10)], fill=(210, 190, 160))
+            draw.rectangle([(sx + 2, 165 - bh1 + 18), (sx + 16, 165 - 10)], fill=(245, 240, 225))
 
-            c2 = bottle_cols[(i + 2) % len(bottle_cols)]
-            bh2 = 50 + ((i * 2) % 3) * 14
-            draw.rectangle([(sx, 270 - bh2), (sx + 20, 270)], fill=c2, outline=(15, 10, 10), width=1)
-            draw.rectangle([(sx + 6, 270 - bh2 - 12), (sx + 14, 270 - bh2)], fill=c2)
+            c2 = bottle_cols[(i + 3) % len(bottle_cols)]
+            bh2 = 52 + ((i * 2) % 3) * 12
+            draw.rectangle([(sx, 285 - bh2), (sx + 18, 285)], fill=c2, outline=(20, 12, 10), width=1)
+            draw.rectangle([(sx + 5, 285 - bh2 - 12), (sx + 13, 285 - bh2)], fill=c2)
+            draw.ellipse([(sx + 4, 285 - bh2 - 15), (sx + 14, 285 - bh2 - 10)], fill=(210, 190, 160))
+            draw.rectangle([(sx + 2, 285 - bh2 + 16), (sx + 16, 285 - 10)], fill=(235, 230, 215))
 
-        # 4. Parlayan Neon Bar Tabelası
-        neon_txt = 'STAND-UP COMEDY BAR'
+        # 4. PARLAYAN NEON BAR TABELASI
+        neon_txt = '🍻 STAND-UP COMEDY BAR & PUB 🍻'
         fnt_neon = _font(22)
         try:
             nb = draw.textbbox((0, 0), neon_txt, font=fnt_neon)
@@ -676,8 +719,15 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
         except Exception:
             nw, nh = len(neon_txt) * 12, 24
         nx = (VIDEO_W - nw) // 2
-        draw.rounded_rectangle([nx - 18, 30, nx + nw + 18, 30 + nh + 16], radius=8, outline=(255, 65, 120), width=2)
-        draw.text((nx, 37), neon_txt, fill=(255, 130, 175), font=fnt_neon)
+        draw.rounded_rectangle([nx - 24, 102, nx + nw + 24, 102 + nh + 18], radius=10, fill=(25, 12, 20), outline=(255, 65, 130), width=3)
+        draw.rounded_rectangle([nx - 20, 106, nx + nw + 20, 102 + nh + 14], radius=8, outline=(255, 140, 185), width=1)
+        draw.text((nx, 110), neon_txt, fill=(255, 160, 200), font=fnt_neon)
+
+        # 5. Sahne Spotu (Barmenin üzerine vuran altın ışık konisi)
+        cx, cy = VIDEO_W // 2, 0
+        for radius in range(400, 0, -15):
+            draw.ellipse([cx - radius, cy - radius // 2, cx + radius, cy + radius // 2],
+                         outline=(255, 210, 100))
 
     elif theme_key == 'theatre':
         # 🎭 Kırmızı Kadife Perdeli Tiyatro
@@ -1088,7 +1138,7 @@ def _generate_video_worker(job_id: str, project: dict):
                 char_paths[spk] = char_paths.get('comedian', default_arda_path)
 
         bar_top_y = VIDEO_H - 185
-        if theme_key == 'bar':
+        if theme_key in ('bar', 'bar_photo', 'club'):
             CHAR_POS = {
                 'comedian':  (VIDEO_W // 2, bar_top_y + 115),
                 'comedian2': (VIDEO_W // 2, bar_top_y + 115),
@@ -1170,7 +1220,7 @@ def _generate_video_worker(job_id: str, project: dict):
                                      mouth_state=mouth_state, blink=blink, bounce=bounce, tilt=tilt)
 
                 # 2. Bar Tezgahı ve Kadeh Kaldıran Müşteriler Katmanı (Barmenin önündedir!)
-                if theme_key == 'bar':
+                if theme_key in ('bar', 'club'):
                     _draw_bar_counter_and_patrons(ImageDraw.Draw(frame), is_cheering=is_cheer, t_sec=t_sec)
 
                 # 3. Altyazı Bandı
@@ -1483,11 +1533,22 @@ def api_video_status(job_id: str):
 
 @app.route('/download/<fname>')
 def download_video(fname: str):
+    """Kullanıcının MP4 dosyasını doğrudan cihazına indirmesini sağlar."""
     path = os.path.join(OUTPUT_DIR, fname)
     if not os.path.exists(path):
         return 'Video bulunamadı', 404
     return send_file(path, as_attachment=True,
-                     download_name='standup_video.mp4',
+                     download_name='standup_bar_komedi.mp4',
+                     mimetype='video/mp4')
+
+
+@app.route('/video/<fname>')
+def stream_video(fname: str):
+    """Tarayıcı içi video oynatıcının takılmadan izlenebilmesi için inline video yayını."""
+    path = os.path.join(OUTPUT_DIR, fname)
+    if not os.path.exists(path):
+        return 'Video bulunamadı', 404
+    return send_file(path, as_attachment=False,
                      mimetype='video/mp4')
 
 

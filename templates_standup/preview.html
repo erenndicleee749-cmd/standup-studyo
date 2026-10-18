@@ -119,17 +119,41 @@
 
     <!-- Tamamlandı -->
     <div id="render-done" style="display:none">
-      <div class="done-anim">🎉</div>
-      <h3>Video Hazır!</h3>
-      <p>Stand-up videosu başarıyla oluşturuldu.</p>
+      <div class="done-anim" style="font-size:3rem; margin-bottom:8px;">🎉</div>
+      <h3 style="font-size:1.6rem; color:var(--text, #fff); margin-bottom:4px;">Tebrikler, Video Hazır!</h3>
+      <p style="color:var(--text-dim, #aaa); margin-bottom:20px;">Stand-up bar videonuz başarıyla oluşturuldu.</p>
 
-      <div class="video-player-wrap">
-        <video id="result-video" controls style="width:100%; border-radius:12px; max-height:360px;"></video>
+      <!-- 🌟 GÖZ ALICI MP4 İNDİRME ALANI (HERO DOWNLOAD BOX) 🌟 -->
+      <div class="mp4-download-zone" style="background: linear-gradient(135deg, rgba(39, 174, 96, 0.22), rgba(46, 204, 113, 0.12)); border: 2px solid #2ecc71; border-radius: 16px; padding: 24px 20px; text-align: center; margin-bottom: 24px; box-shadow: 0 8px 30px rgba(46, 204, 113, 0.25);">
+        <div style="font-size: 2.4rem; margin-bottom: 8px;">📥</div>
+        <h4 style="color: #2ecc71; font-size: 1.4rem; font-weight: 800; margin-bottom: 8px; letter-spacing: 0.5px;">
+          MP4 VİDEO İNDİRME ALANI
+        </h4>
+        <p style="color: var(--text-dim, #ddd); font-size: 0.95rem; margin-bottom: 18px; max-width: 520px; margin-left: auto; margin-right: auto;">
+          Stand-up videonuz MP4 formatında hazırlandı! Aşağıdaki butona tıklayarak <strong>videonuzu doğrudan bilgisayarınıza veya telefonunuza</strong> indirebilirsiniz.
+        </p>
+        <a id="btn-hero-download" href="#" download="standup_bar_video.mp4" class="btn-primary" style="display: inline-flex; align-items: center; justify-content: center; gap: 12px; background: linear-gradient(135deg, #27ae60, #2ecc71); color: #fff; font-size: 1.15rem; font-weight: 700; padding: 15px 36px; border-radius: 12px; text-decoration: none; box-shadow: 0 6px 20px rgba(46,204,113,0.45); cursor: pointer;">
+          <span style="font-size: 1.4rem;">⬇️</span>
+          <span>MP4 Videoyu Cihazına İndir</span>
+          <span style="background: rgba(0,0,0,0.25); padding: 3px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 600;">HD MP4</span>
+        </a>
+        <div style="margin-top: 12px; font-size: 0.85rem; color: #a8e6cf; font-weight: 500;">
+          ✅ YouTube Shorts, Instagram Reels, TikTok ve WhatsApp için hazır
+        </div>
       </div>
 
-      <div class="download-actions">
-        <a id="btn-download" class="btn-primary btn-download" download="standup_video.mp4">
-          ⬇️ MP4 İndir
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h4 style="margin:0; font-size:1.05rem; color:var(--text, #fff);">📺 Video Önizleme & Oynatıcı</h4>
+        <span style="font-size:0.8rem; color:var(--text-dim, #888);">Tarayıcıda izle</span>
+      </div>
+
+      <div class="video-player-wrap" style="position:relative; background:#000; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.1); margin-bottom: 20px;">
+        <video id="result-video" controls playsinline style="width:100%; border-radius:12px; max-height:420px; display:block;"></video>
+      </div>
+
+      <div class="download-actions" style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+        <a id="btn-download" class="btn-primary btn-download" download="standup_bar_video.mp4" style="background:#27ae60; padding:10px 20px;">
+          ⬇️ Alternatif MP4 İndir Butonu
         </a>
         <button class="btn-secondary" onclick="restartRender()">🔄 Yeniden Üret</button>
         <a href="/" class="btn-ghost">🏠 Ana Sayfa</a>
@@ -278,12 +302,24 @@ function updateProgress(pct, stage) {
 function showDone(fname) {
   clearTimeout(pollTimer);
   document.getElementById('render-progress').style.display = 'none';
-  document.getElementById('render-done').style.display = 'block';
+  const doneEl = document.getElementById('render-done');
+  doneEl.style.display = 'block';
 
-  const videoUrl = `/download/${fname}`;
-  document.getElementById('result-video').src   = videoUrl;
-  document.getElementById('btn-download').href  = videoUrl;
-  showToast('Video hazır! 🎉', 'success');
+  const downloadUrl = `/download/${fname}`;
+  const videoStreamUrl = `/video/${fname}`;
+
+  document.getElementById('result-video').src        = videoStreamUrl;
+  document.getElementById('btn-hero-download').href  = downloadUrl;
+  document.getElementById('btn-download').href       = downloadUrl;
+
+  const vid = document.getElementById('result-video');
+  try { vid.load(); } catch(e) {}
+
+  setTimeout(() => {
+    doneEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 120);
+
+  showToast('Video hazır! MP4 indirme butonu aktif 📥🎉', 'success');
 }
 
 function showError(msg) {
