@@ -629,20 +629,25 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
     bg = theme['bg']
     spot = theme['spot']
 
-    # 1. Gerçek Bar Fotoğrafı teması
-    if theme_key == 'bar_photo':
-        photo_path = custom_bg_path or os.path.join(STATIC_DIR, 'venues', 'real_bar.png')
-        if not os.path.exists(photo_path):
-            photo_path = os.path.join(DATA_DIR, 'venues', 'real_bar.png')
-        if os.path.exists(photo_path):
-            try:
-                bg_img = Image.open(photo_path).convert('RGB').resize((VIDEO_W, VIDEO_H), Image.LANCZOS)
-                frame.paste(bg_img, (0, 0))
-                return
-            except Exception as e:
-                print(f'Bar fotoğrafı yükleme hatası: {e}')
+    # 1. Bar ortamı: Kullanıcının gerçek otantik bar fotoğrafını doğrudan arka plan yap
+    if theme_key in ('bar', 'bar_photo'):
+        real_bar_candidates = [
+            custom_bg_path,
+            os.path.join(STATIC_VENUE_DIR, 'real_bar.png'),
+            os.path.join(VENUE_DIR, 'real_bar.png'),
+            os.path.join(BASE_DIR, 'static_standup', 'venues', 'real_bar.png'),
+            os.path.join(BASE_DIR, 'standup_data', 'venues', 'real_bar.png')
+        ]
+        for bp in real_bar_candidates:
+            if bp and os.path.exists(bp):
+                try:
+                    bg_img = Image.open(bp).convert('RGB').resize((VIDEO_W, VIDEO_H), Image.LANCZOS)
+                    frame.paste(bg_img, (0, 0))
+                    return
+                except Exception as e:
+                    print(f'Bar fotoğrafı yükleme hatası: {e}')
 
-    if theme_key in ('bar', 'club'):
+    if theme_key in ('bar_cartoon', 'club'):
         # 🍺 Otantik Ahşap Bar & Pub Atmosferi (Kullanıcı Referansına Uygun)
         # 1. Ahşap loş duvar degradesi
         for y in range(VIDEO_H - 140):
@@ -976,10 +981,25 @@ def _build_sprite(char_path: str, scale: float, mouth_state: int, blink: bool, t
         _SPRITE_CACHE[key] = sprite
         return sprite
 
-    char = Image.open(char_path).convert('RGBA')
-    new_w = max(1, int(char.width * scale))
-    new_h = max(1, int(char.height * scale))
-    char = char.resize((new_w, new_h), Image.LANCZOS)
+    char_raw = Image.open(char_path).convert('RGBA')
+    is_vector_sprite = (char_raw.width == 400 and char_raw.height == 600)
+
+    new_w = max(1, int(char_raw.width * scale))
+    new_h = max(1, int(char_raw.height * scale))
+
+    # Fotogerçekçi karakterler için pürüzsüz konuşma ve nefes alma animasyonu
+    if not is_vector_sprite:
+        if mouth_state == 1:
+            # Konuşma anında hafif doğal çene/gövde hareketi
+            new_h = int(new_h * 1.015)
+        elif mouth_state == 2:
+            new_w = int(new_w * 1.02)
+            new_h = int(new_h * 1.02)
+        char = char_raw.resize((new_w, new_h), Image.LANCZOS)
+        _SPRITE_CACHE[key] = char
+        return char
+
+    char = char_raw.resize((new_w, new_h), Image.LANCZOS)
     draw = ImageDraw.Draw(char)
 
     outline = (22, 18, 22)
@@ -1137,11 +1157,10 @@ def _generate_video_worker(job_id: str, project: dict):
             if spk in ('comedian', 'comedian2') and spk not in char_paths:
                 char_paths[spk] = char_paths.get('comedian', default_arda_path)
 
-        bar_top_y = VIDEO_H - 185
         if theme_key in ('bar', 'bar_photo', 'club'):
             CHAR_POS = {
-                'comedian':  (VIDEO_W // 2, bar_top_y + 115),
-                'comedian2': (VIDEO_W // 2, bar_top_y + 115),
+                'comedian':  (640, 515),
+                'comedian2': (640, 515),
             }
         else:
             CHAR_POS = {
@@ -1200,7 +1219,7 @@ def _generate_video_worker(job_id: str, project: dict):
                     if not cp:
                         continue
                     is_speaking = (role == speaker)
-                    scale = 0.58 if role == 'comedian' else 0.50
+                    scale = 0.48 if role == 'comedian' else 0.45
 
                     # Doğal göz kırpma (Her ~3.3 saniyede 0.16 sn sevimli göz kırpma)
                     blink = ((t_sec % 3.3) < 0.16)
@@ -1213,14 +1232,14 @@ def _generate_video_worker(job_id: str, project: dict):
                     else:
                         mouth_state = 0
 
-                    bounce = int(abs(math.sin(t_sec * 10)) * 4) if is_speaking else int(math.sin(t_sec * 2.5) * 2)
-                    tilt = math.sin(t_sec * 7.5) * 2.4 if is_speaking else 0.0
+                    bounce = int(abs(math.sin(t_sec * 6)) * 3) if is_speaking else int(math.sin(t_sec * 2.0) * 1.5)
+                    tilt = math.sin(t_sec * 4.0) * 1.2 if is_speaking else 0.0
 
                     _paste_character(frame, cp, pos[0], pos[1], scale,
                                      mouth_state=mouth_state, blink=blink, bounce=bounce, tilt=tilt)
 
-                # 2. Bar Tezgahı ve Kadeh Kaldıran Müşteriler Katmanı (Barmenin önündedir!)
-                if theme_key in ('bar', 'club'):
+                # 2. Karikatür Bar Tezgahı ve Müşteriler Katmanı (Sadece bar_cartoon modunda çizilir)
+                if theme_key == 'bar_cartoon':
                     _draw_bar_counter_and_patrons(ImageDraw.Draw(frame), is_cheering=is_cheer, t_sec=t_sec)
 
                 # 3. Altyazı Bandı
