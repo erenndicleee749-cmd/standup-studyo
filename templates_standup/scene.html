@@ -93,6 +93,7 @@
       <h3>📄 Senaryo</h3>
       <div class="editor-actions">
         <button class="btn-icon-sm" onclick="addLine()" title="Satır Ekle">➕ Satır</button>
+        <button class="btn-icon-sm" onclick="removeSpeaker2Lines()" style="color:#e74c3c; border-color:#e74c3c;" title="2. Komedyen Satırlarını Temizle">🗑️ 2. Komedyeni Sil</button>
         <button class="btn-icon-sm" onclick="clearScript()" title="Temizle">🗑️ Temizle</button>
       </div>
     </div>
@@ -296,7 +297,7 @@ function renderScript() {
       <div class="line-actions">
         <button onclick="moveLine(${idx}, -1)" title="Yukarı" ${idx===0?'disabled':''}>↑</button>
         <button onclick="moveLine(${idx}, 1)"  title="Aşağı" ${idx===scriptLines.length-1?'disabled':''}>↓</button>
-        <button onclick="deleteLine(${idx})" class="del-btn" title="Sil">✕</button>
+        <button onclick="deleteLine(${idx})" class="del-btn" style="color:#e74c3c; border-color:#e74c3c; font-weight:700; padding:4px 8px;" title="Bu Satırı Sil">🗑️ Sil</button>
       </div>
     </div>
   `).join('');
@@ -316,30 +317,60 @@ function updateLine(idx, field, val) {
   scriptLines[idx][field] = val;
   const est = Math.round(scriptLines.reduce((s,l) => s + (l.text ? l.text.split(' ').length*0.4+1 : 2), 0));
   document.getElementById('duration-est').textContent = `~${est} sn`;
+  saveSceneState();
 }
 
 function addLine() {
   scriptLines.push({ speaker: 'comedian', text: '' });
+  saveSceneState();
   renderScript();
-  // Sona kaydır
   document.querySelector('#script-lines .script-line:last-child')?.scrollIntoView({ behavior: 'smooth' });
 }
 
 function deleteLine(idx) {
   scriptLines.splice(idx, 1);
+  saveSceneState();
   renderScript();
+  showToast('Satır başarıyla silindi!', 'info');
+}
+
+function removeSpeaker2Lines() {
+  const count = scriptLines.filter(l => l.speaker === 'comedian2').length;
+  if (!count) {
+    showToast('Senaryoda 2. Komedyen satırı bulunamadı.', 'info');
+    return;
+  }
+  scriptLines = scriptLines.filter(l => l.speaker !== 'comedian2');
+  saveSceneState();
+  renderScript();
+  showToast(`2. Komedyene ait ${count} satır başarıyla silindi!`, 'success');
+}
+
+function saveSceneState() {
+  const proj = JSON.parse(localStorage.getItem('su_project') || '{}');
+  proj.lines = scriptLines;
+  proj.theme = selectedTheme;
+  if (customVenueUrl) proj.custom_bg = customVenueUrl;
+  localStorage.setItem('su_project', JSON.stringify(proj));
+  fetch('/api/save-project', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(proj)
+  });
 }
 
 function moveLine(idx, dir) {
   const target = idx + dir;
   if (target < 0 || target >= scriptLines.length) return;
   [scriptLines[idx], scriptLines[target]] = [scriptLines[target], scriptLines[idx]];
+  saveSceneState();
   renderScript();
 }
 
 function clearScript() {
-  if (!confirm('Senaryo silinsin mi?')) return;
+  if (!confirm('Tüm senaryo silinsin mi?')) return;
   scriptLines = [];
+  saveSceneState();
   renderScript();
 }
 

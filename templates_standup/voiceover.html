@@ -37,9 +37,10 @@
       <div class="voice-row">
         <span class="voice-icon">🎤</span>
         <span class="voice-label">2. Komedyen</span>
-        <select id="v-comedian2">
-          <option value="comedian2">Kadın - Neşeli</option>
-          <option value="comedian">Erkek - Derin</option>
+        <select id="v-comedian2" onchange="saveAndSync()">
+          <option value="comedian">Erkek (Tok & Doğal Bariton)</option>
+          <option value="kadin">Kadın (Doğal & Neşeli)</option>
+          <option value="genc_erkek">Erkek (Genç)</option>
         </select>
       </div>
       <div class="voice-row">
@@ -135,7 +136,12 @@
 
     <div class="divider"></div>
 
-    <h4>📋 Senaryo Satırları</h4>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h4 style="margin:0;">📋 Senaryo Satırları</h4>
+      <button type="button" class="btn-secondary" onclick="removeAllSpeaker2FromVoiceover()" style="font-size:0.75rem; padding:4px 10px; color:#e74c3c; border-color:#e74c3c; cursor:pointer;" title="2. Komedyene ait tüm satırları temizle">
+        🗑️ 2. Komedyen Satırlarını Sil
+      </button>
+    </div>
     <div id="voice-lines-list" class="voice-lines-list">
       <p class="hint">Senaryo satırları yükleniyor...</p>
     </div>
@@ -150,7 +156,7 @@
 
 <script>
 const proj = JSON.parse(localStorage.getItem('su_project') || '{}');
-const lines = proj.lines || [];
+let lines = proj.lines || [];
 
 let mediaRecorder = null;
 let audioChunks = [];
@@ -187,6 +193,7 @@ function renderVoiceLines() {
       <div class="line-audio-actions">
         <button type="button" class="btn-micro-action" onclick="recordDirectlyForLine(${idx})">🎙️ Bu Satırı Seslendir</button>
         <button type="button" class="btn-micro-action" onclick="uploadDirectlyForLine(${idx})">📁 Bu Satıra Ses Yükle</button>
+        <button type="button" class="btn-micro-action" onclick="deleteVoiceLine(${idx})" style="color:#e74c3c; border-color:#e74c3c; margin-left:auto; font-weight:600;" title="Bu satırı sil">🗑️ Satırı Sil</button>
       </div>
       <audio id="audio-${idx}" style="display:none"></audio>
     </div>
@@ -345,6 +352,25 @@ function revertLineToTTS(idx) {
     renderVoiceLines();
     showToast(`#${idx+1} satırı tekrar AI sesine döndürüldü.`, 'info');
   }
+}
+
+function deleteVoiceLine(idx) {
+  lines.splice(idx, 1);
+  saveAndSync();
+  renderVoiceLines();
+  showToast('Satır başarıyla silindi!', 'success');
+}
+
+function removeAllSpeaker2FromVoiceover() {
+  const count = lines.filter(l => l.speaker === 'comedian2').length;
+  if (!count) {
+    showToast('Senaryoda 2. Komedyen satırı bulunamadı.', 'info');
+    return;
+  }
+  lines = lines.filter(l => l.speaker !== 'comedian2');
+  saveAndSync();
+  renderVoiceLines();
+  showToast(`2. Komedyene ait ${count} satır başarıyla silindi!`, 'success');
 }
 
 function quickPlay(idx) {

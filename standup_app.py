@@ -493,15 +493,37 @@ def piper_text_to_speech(text: str, speaker: str = 'comedian') -> str | None:
     out_wav = os.path.join(AUDIO_DIR, f'piper_{aid}.wav')
     out_mp3 = os.path.join(AUDIO_DIR, f'{aid}.mp3')
 
-    # Sunucu için tok 'fettah', komedyen için doğal vurgulu 'fahrettin'
-    model_name = 'tr_TR-fettah-medium' if speaker == 'host' else 'tr_TR-fahrettin-medium'
+    import shutil
+
+    # Ses modeli seçimi:
+    # tr_TR-fettah-medium: Tok, derin, doğal erkek bariton sesi (Doğal stand-up akışı)
+    # tr_TR-fahrettin-medium: Genç erkek sesi
+    # tr_TR-dfki-medium: Kadın sesi
+    sp_lower = str(speaker or '').lower()
+    if sp_lower in ('kadin', 'female', 'dfki', 'feride'):
+        model_name = 'tr_TR-dfki-medium'
+    elif sp_lower in ('genc_erkek', 'fahrettin', 'comedian_young'):
+        model_name = 'tr_TR-fahrettin-medium'
+    else:
+        # Varsayılan: Tok, doğal erkek sesi (Fettah)
+        model_name = 'tr_TR-fettah-medium'
+
     onnx_path, json_path = _ensure_piper_model(model_name)
 
     if not os.path.exists(onnx_path) or not os.path.exists(json_path):
         return None
 
     try:
-        cmd = ['piper', '-m', onnx_path, '-c', json_path, '-f', out_wav]
+        piper_bin = shutil.which('piper') or 'piper'
+        cmd = [
+            piper_bin,
+            '-m', onnx_path,
+            '-c', json_path,
+            '-f', out_wav,
+            '--length-scale', '1.04',
+            '--noise-scale', '0.667',
+            '--noise-w', '0.8'
+        ]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
         _, err = p.communicate(input=text, timeout=25)
 
