@@ -694,14 +694,16 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
     bg = theme['bg']
     spot = theme['spot']
 
-    # 1. Bar ortamı: Kullanıcının gerçek otantik bar fotoğrafını doğrudan arka plan yap
-    if theme_key in ('bar', 'bar_photo'):
+    # 1. Bar ortamı: Stilize animasyon pub arka planı (müşteriler, kadehler, raflar, sıcak ışıklar)
+    if theme_key in ('bar', 'bar_photo', 'bar_cartoon', 'club'):
         real_bar_candidates = [
             custom_bg_path,
+            os.path.join(STATIC_VENUE_DIR, 'bar.png'),
             os.path.join(STATIC_VENUE_DIR, 'real_bar.png'),
+            os.path.join(VENUE_DIR, 'bar.png'),
             os.path.join(VENUE_DIR, 'real_bar.png'),
-            os.path.join(BASE_DIR, 'static_standup', 'venues', 'real_bar.png'),
-            os.path.join(BASE_DIR, 'standup_data', 'venues', 'real_bar.png')
+            os.path.join(BASE_DIR, 'static_standup', 'venues', 'bar.png'),
+            os.path.join(BASE_DIR, 'static_standup', 'venues', 'real_bar.png')
         ]
         for bp in real_bar_candidates:
             if bp and os.path.exists(bp):
@@ -710,7 +712,7 @@ def _draw_stage_bg(frame: Image.Image, theme_key: str, custom_bg_path: str = Non
                     frame.paste(bg_img, (0, 0))
                     return
                 except Exception as e:
-                    print(f'Bar fotoğrafı yükleme hatası: {e}')
+                    print(f'Bar arka planı yükleme hatası: {e}')
 
     if theme_key in ('bar_cartoon', 'club'):
         # 🍺 Otantik Ahşap Bar & Pub Atmosferi (Kullanıcı Referansına Uygun)
@@ -1262,10 +1264,10 @@ def _generate_video_worker(job_id: str, project: dict):
             if spk in ('comedian', 'comedian2') and spk not in char_paths:
                 char_paths[spk] = char_paths.get('comedian', default_arda_path)
 
-        if theme_key in ('bar', 'bar_photo', 'club'):
+        if theme_key in ('bar', 'bar_photo', 'bar_cartoon', 'club'):
             CHAR_POS = {
-                'comedian':  (640, 490),
-                'comedian2': (640, 490),
+                'comedian':  (640, 575),
+                'comedian2': (640, 575),
             }
         else:
             CHAR_POS = {
@@ -1324,7 +1326,7 @@ def _generate_video_worker(job_id: str, project: dict):
                     if not cp:
                         continue
                     is_speaking = (role == speaker)
-                    scale = 0.58 if role in ('comedian', 'comedian2') else 0.50
+                    scale = 0.52 if role in ('comedian', 'comedian2') else 0.48
 
                     # Doğal göz kırpma (Her ~3.3 saniyede 0.16 sn sevimli göz kırpma)
                     blink = ((t_sec % 3.3) < 0.16)
@@ -1343,8 +1345,8 @@ def _generate_video_worker(job_id: str, project: dict):
                     _paste_character(frame, cp, pos[0], pos[1], scale,
                                      mouth_state=mouth_state, blink=blink, bounce=bounce, tilt=tilt)
 
-                # 2. Karikatür Bar Tezgahı ve Müşteriler Katmanı (Sadece bar_cartoon modunda çizilir)
-                if theme_key == 'bar_cartoon':
+                # 2. Karikatür Bar Tezgahı ve Müşteriler Katmanı (Sadece bar_vector_old modunda çizilir)
+                if theme_key == 'bar_vector_old':
                     _draw_bar_counter_and_patrons(ImageDraw.Draw(frame), is_cheering=is_cheer, t_sec=t_sec)
 
                 # 3. Altyazı Bandı
