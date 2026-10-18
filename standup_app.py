@@ -13,7 +13,7 @@ import re
 
 from flask import (Flask, render_template, request, jsonify,
                    send_file, session, url_for)
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps, ImageEnhance
 import requests
 import numpy as np
 from gtts import gTTS
@@ -514,6 +514,10 @@ def piper_text_to_speech(text: str, speaker: str = 'comedian') -> str | None:
         return None
 
     try:
+        clean_text = ''.join(c for c in text if not (0xD800 <= ord(c) <= 0xDFFF)).strip()
+        if not clean_text:
+            return None
+
         piper_bin = shutil.which('piper') or 'piper'
         cmd = [
             piper_bin,
@@ -524,8 +528,12 @@ def piper_text_to_speech(text: str, speaker: str = 'comedian') -> str | None:
             '--noise-scale', '0.667',
             '--noise-w', '0.8'
         ]
-        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
-        _, err = p.communicate(input=text, timeout=25)
+        piper_env = dict(os.environ)
+        piper_env['PYTHONUTF8'] = '1'
+        piper_env['PYTHONIOENCODING'] = 'utf-8'
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=piper_env)
+        _, err_bytes = p.communicate(input=clean_text.encode('utf-8', errors='ignore'), timeout=25)
+        err = err_bytes.decode('utf-8', errors='replace') if err_bytes else ''
 
         if p.returncode == 0 and os.path.exists(out_wav) and os.path.getsize(out_wav) > 1000:
             import imageio_ffmpeg
@@ -921,7 +929,35 @@ def create_custom_photo_character(image_file, role: str = 'comedian', mode: str 
     W, H = 400, 600
     canvas = Image.new('RGBA', (W, H), (0, 0, 0, 0))
 
-    if mode == 'bobblehead':
+    if mode == 'caricature':
+        # Fotoğrafı karikatür / çizgi film karakterine dönüştür
+        rgb = img.convert('RGB')
+        gray = rgb.convert('L')
+        edges = gray.filter(ImageFilter.FIND_EDGES)
+        edges = ImageOps.invert(edges)
+        edges = edges.point(lambda p: 255 if p > 155 else 0)
+
+        smoothed = rgb.filter(ImageFilter.SMOOTH_MORE).filter(ImageFilter.SMOOTH_MORE)
+        quant = smoothed.quantize(colors=28, method=2).convert('RGB')
+        quant = ImageEnhance.Color(quant).enhance(1.45)
+        quant = ImageEnhance.Contrast(quant).enhance(1.25)
+
+        cartoon_rgb = Image.composite(quant, Image.new('RGB', quant.size, (20, 20, 25)), edges)
+        if 'A' in img.getbands():
+            cartoon_rgb.putalpha(img.getchannel('A'))
+        else:
+            cartoon_rgb = cartoon_rgb.convert('RGBA')
+
+        cartoon_rgb.thumbnail((360, 520), Image.LANCZOS)
+        px = (W - cartoon_rgb.width) // 2
+        py = (H - cartoon_rgb.height) - 40
+        canvas.paste(cartoon_rgb, (px, py), cartoon_rgb)
+
+        draw = ImageDraw.Draw(canvas)
+        draw.line([(px + cartoon_rgb.width - 35, py + cartoon_rgb.height // 2), (px + cartoon_rgb.width - 35, H - 30)], fill=(180, 180, 190), width=6)
+        draw.ellipse([(px + cartoon_rgb.width - 48, py + cartoon_rgb.height // 2 - 25), (px + cartoon_rgb.width - 22, py + cartoon_rgb.height // 2 + 10)], fill=(80, 80, 90))
+
+    elif mode == 'bobblehead':
         # 1. Çizgi Stand-Up Kıyafeti & Gövde
         draw = ImageDraw.Draw(canvas)
         try:
@@ -1181,8 +1217,8 @@ def _generate_video_worker(job_id: str, project: dict):
 
         if theme_key in ('bar', 'bar_photo', 'club'):
             CHAR_POS = {
-                'comedian':  (640, 515),
-                'comedian2': (640, 515),
+                'comedian':  (640, 490),
+                'comedian2': (640, 490),
             }
         else:
             CHAR_POS = {
@@ -1241,7 +1277,7 @@ def _generate_video_worker(job_id: str, project: dict):
                     if not cp:
                         continue
                     is_speaking = (role == speaker)
-                    scale = 0.48 if role == 'comedian' else 0.45
+                    scale = 0.58 if role in ('comedian', 'comedian2') else 0.50
 
                     # Doğal göz kırpma (Her ~3.3 saniyede 0.16 sn sevimli göz kırpma)
                     blink = ((t_sec % 3.3) < 0.16)

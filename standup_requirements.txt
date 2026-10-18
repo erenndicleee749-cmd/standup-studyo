@@ -7,3 +7,4 @@ imageio==2.35.1
 imageio-ffmpeg==0.5.1
 numpy==1.26.4
 gunicorn==22.0.0
+piper-tts

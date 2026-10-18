@@ -31,16 +31,14 @@
       <div class="form-group">
         <label for="char-prompt">Karakter Açıklaması (Prompt)</label>
         <textarea id="char-prompt" rows="4"
-          placeholder="Örnek: Arda, kıvırcık saçlı sempatik barmen komedyen, yelekli papyonlu (Feride karikatür stili)."></textarea>
+          placeholder="Örnek: Arda, kıvırcık saçlı sempatik barmen komedyen, vintage yelekli ve papyonlu karikatür."></textarea>
         <div class="prompt-tags">
-          <span class="tag" style="background:#8e44ad;color:#fff;" onclick="addTag('arda kıvırcık saçlı barmen yelekli papyonlu feride karikatür')">🍸 Arda (Kıvırcık Barmen)</span>
-          <span class="tag" onclick="addTag('Emir Sağlam Feride stili karikatür sevimli iri kafa kadın')">🎨 Feride (Kadın Komedyen)</span>
-          <span class="tag" onclick="addTag('barmen yelekli papyonlu kırmızı bereli')">🎩 Bereli Barmen</span>
-          <span class="tag" onclick="addTag('şişman')">😄 Şişman</span>
-          <span class="tag" onclick="addTag('bıyıklı')">👨 Bıyıklı</span>
+          <span class="tag" style="background:#8e44ad;color:#fff;" onclick="addTag('Arda, kıvırcık saçlı sempatik barmen, vintage yelekli, papyonlu')">🍸 Arda (Barmen)</span>
+          <span class="tag" onclick="addTag('vintage yelekli papyonlu barmen')">🎩 Yelekli Barmen</span>
+          <span class="tag" onclick="addTag('bıyıklı barmen')">👨 Bıyıklı</span>
           <span class="tag" onclick="addTag('gözlüklü')">🤓 Gözlüklü</span>
           <span class="tag" onclick="addTag('elinde mikrofon')">🎤 Mikrofon</span>
-          <span class="tag" onclick="addTag('kadın')">👩 Kadın</span>
+          <span class="tag" onclick="addTag('kadın komedyen')">👩 Kadın</span>
         </div>
       </div>
 
@@ -80,13 +78,13 @@
       <div class="form-group">
         <label>Animasyon Tarzı</label>
         <div class="photo-mode-grid">
-          <div class="photo-mode-btn active" id="mode-bobblehead" onclick="selectPhotoMode('bobblehead')">
-            <strong>🎭 Stand-Up Gövdesi</strong>
-            <small style="display:block; color:var(--text-dim); margin-top:4px;">Yüzün takım elbiseli, mikrofonlu hareketli komedyene dönüşür</small>
+          <div class="photo-mode-btn active" id="mode-caricature" onclick="selectPhotoMode('caricature')">
+            <strong>🎨 Karikatür Modu</strong>
+            <small style="display:block; color:var(--text-dim); margin-top:4px;">Fotoğrafın karikatür çizim karakterine dönüştürülür</small>
           </div>
-          <div class="photo-mode-btn" id="mode-direct" onclick="selectPhotoMode('direct')">
-            <strong>👤 Doğrudan Fotoğraf</strong>
-            <small style="display:block; color:var(--text-dim); margin-top:4px;">Fotoğrafın olduğu gibi mikrofonla sahneye yerleştirilir</small>
+          <div class="photo-mode-btn" id="mode-bobblehead" onclick="selectPhotoMode('bobblehead')">
+            <strong>🎭 Stand-Up Gövdesi</strong>
+            <small style="display:block; color:var(--text-dim); margin-top:4px;">Yüzün takım elbiseli mikrofonlu komedyene dönüşür</small>
           </div>
         </div>
       </div>
@@ -150,17 +148,17 @@
 <script>
 // Karakter veritabanı (session)
 let characters = JSON.parse(localStorage.getItem('su_characters') || '{}');
-if (!characters['comedian']) {
+if (!characters['comedian'] || (characters['comedian'].prompt && characters['comedian'].prompt.toLowerCase().includes('feride')) || characters['comedian'].cid !== 'arda_default') {
   characters['comedian'] = {
     cid: 'arda_default',
     img_url: '/static_standup/characters/arda_default.png',
-    prompt: 'Arda — Kıvırcık saçlı barmen komedyen (Feride karikatür stili)',
+    prompt: 'Arda — Barmen (Kıvırcık saçlı, vintage yelekli ve papyonlu barmen)',
     color: '#2c3e50'
   };
   localStorage.setItem('su_characters', JSON.stringify(characters));
 }
 let selectedRole = 'comedian';
-let selectedPhotoMode = 'bobblehead';
+let selectedPhotoMode = 'caricature';
 let selectedPhotoFile = null;
 
 function switchCreatorTab(tab) {
@@ -178,8 +176,10 @@ function switchCreatorTab(tab) {
 
 function selectPhotoMode(mode) {
   selectedPhotoMode = mode;
-  document.getElementById('mode-bobblehead').classList.toggle('active', mode === 'bobblehead');
-  document.getElementById('mode-direct').classList.toggle('active', mode === 'direct');
+  const bCar = document.getElementById('mode-caricature');
+  const bBob = document.getElementById('mode-bobblehead');
+  if (bCar) bCar.classList.toggle('active', mode === 'caricature');
+  if (bBob) bBob.classList.toggle('active', mode === 'bobblehead');
 }
 
 function onPhotoSelected(e) {
